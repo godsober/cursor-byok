@@ -32,7 +32,6 @@ const keptAlivePages = ["/", "/calls", "/settings", "/harness/cursor", "/plugins
 const readAdStorageKey = "cursor-byok:read-ad-ids";
 const dismissedAdStorageKey = "cursor-byok:dismissed-ad-ids";
 const tutorialReadStorageKey = "cursor-byok:tutorial-read";
-const tutorialUrl = "https://docs.leokun.cn";
 
 function loadStoredAdIds(key: string): Set<string> {
   try {
@@ -55,7 +54,6 @@ export function AppLayout() {
   const [activeAd, setActiveAd] = useState<AdSlot | null>(null);
   const [dismissCandidate, setDismissCandidate] = useState<AdSlot | null>(null);
   const [dismissReason, setDismissReason] = useState("");
-  const [confirmTutorial, setConfirmTutorial] = useState(false);
   const [tutorialRead, setTutorialRead] = useState(() => {
     try {
       return localStorage.getItem(tutorialReadStorageKey) === "true";
@@ -82,8 +80,7 @@ export function AppLayout() {
   ];
 
   const openTutorial = useCallback(() => {
-    setConfirmTutorial(false);
-    void api.openExternalUrl(tutorialUrl)
+    void api.openUserGuide()
       .then(() => {
         setTutorialRead(true);
         try {
@@ -202,7 +199,7 @@ export function AppLayout() {
             <button
               type="button"
               aria-label={`${item.label}${tutorialRead ? "" : `，${t("未读")}`}`}
-              onClick={() => setConfirmTutorial(true)}
+              onClick={openTutorial}
             >
               {typeof item.icon === "string"
                 ? <Icon src={item.icon} size="1.3em" />
@@ -231,17 +228,6 @@ export function AppLayout() {
       </nav>
     </Card>
     {activeAd && <FloatingAd ad={activeAd} trigger={adTriggers.current.get(activeAd.id) ?? null} onClose={closeAd} onAction={performAdAction} />}
-    <ConfirmDialog
-      id="open-tutorial-dialog"
-      open={confirmTutorial}
-      title={t("打开使用教程？")}
-      cancelLabel={t("取消")}
-      confirmLabel={t("打开教程")}
-      onCancel={() => setConfirmTutorial(false)}
-      onConfirm={openTutorial}
-    >
-      <p>{t("将在系统浏览器中打开使用教程，是否继续？")}</p>
-    </ConfirmDialog>
     <ConfirmDialog
       id="dismiss-ad-dialog"
       open={dismissCandidate !== null}

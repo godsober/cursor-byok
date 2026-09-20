@@ -13,15 +13,16 @@
     "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:*",
-      "dangerousDisableAssetCspModification": [
-        "style-src"
-      ]
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "resources": [
+      "resources/助手使用指南.docx"
+    ],
     "icon": [
       "icons/linux-32x32.png",
       "icons/linux-128x128.png",
@@ -35,7 +36,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1MEY2RjQzRjA0MjhCMDUKUldRRmkwTHdRMjhQZGJJam9zT1NwcW83L1V4ckJvbkQzQ0FYVFZ6MGRpa1N2NVFkUHk1dW14c1AK",
       "endpoints": [
-        "https://github.com/leookun/cursor-byok/releases/latest/download/latest.json"
+        "https://gitee.com/god_soboer/cursor-byok/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

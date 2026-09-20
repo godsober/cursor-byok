@@ -1,177 +1,306 @@
-//! Converts completed Tool work into canonical Tool results.
-mod exec;
-mod gate;
-mod interaction;
-mod local;
-mod mcp;
-mod mcp_state;
-mod search;
+//! Exposes the extensible Cursor Tool system.
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
-use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::Mutex;
+
+pub mod codec;
+pub(crate) mod compat;
+pub(crate) mod edit;
+pub(crate) mod registry;
+pub mod runtime;
+mod schedule;
+pub(crate) mod stream;
+mod tool_call_dispatch;
+pub(crate) mod tool_call_result;
 
 use crate::{
-    cursor::protocol::proto::agent::v1 as pb,
-    model::{ToolCall, ToolImageReference, ToolResult},
-    store::BlobId,
+    model::{CanonicalMessage, MessageContent, Role, ToolCall},
+    search::{WebCache, WebFetch, WebSearch},
+    store::Store,
     Error, Result,
 };
 
-use super::runtime::now_ms;
+use self::schedule::{DeferredEdit, EditSchedule};
+use self::tool_call_result::{ToolCompletion, ToolResultSender};
+use super::protocol::proto::agent::v1 as pb;
+use runtime::{CursorToolRuntime, ExecContext};
 
-pub(crate) use exec::{edit_failure, from_exec};
-pub(crate) use interaction::{complete_web_fetch, complete_web_search, from_interaction};
-pub(crate) use local::{local, subagents_disabled, todo_items};
-pub(crate) use mcp::failure as mcp_failure;
-pub(crate) use search::complete as semble;
-
-#[derive(Clone, Debug)]
-pub struct ToolCompletion {
-    result: ToolResult,
-    tool_call: pb::ToolCall,
-    read_image: Option<ReadImage>,
+#[derive(Clone)]
+pub struct ToolDispatcher {
+    runtime: CursorToolRuntime,
+    results: ToolResultSender,
+    search: WebSearch,
+    fetch: WebFetch,
+    store: Option<Store>,
+    edit_schedule: Arc<Mutex<EditSchedule>>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct ReadImage {
-    pub(crate) data: Vec<u8>,
-    pub(crate) mime_type: String,
-    pub(crate) path: String,
+pub struct DispatchedTool {
+    pub messages: Vec<pb::AgentServerMessage>,
+    pub completion: Option<ToolCompletion>,
 }
 
-impl ToolCompletion {
-    pub fn result(&self) -> &ToolResult {
-        &self.result
-    }
+pub struct ToolBatchState<'a> {
+    pub completed: &'a HashSet<String>,
+    pub started: &'a HashSet<String>,
+    pub response_text: &'a str,
+    pub response_thinking: &'a str,
+}
 
-    pub fn tool_call(&self) -> &pb::ToolCall {
-        &self.tool_call
-    }
+pub enum ClientToolEvent {
+    Completed(Box<ToolCompletion>),
+    Pending,
+}
 
-    pub(super) fn with_read_image(mut self, image: Option<ReadImage>) -> Self {
-        self.read_image = image;
-        self
-    }
-
-    pub(crate) fn take_read_image(&mut self) -> Option<ReadImage> {
-        self.read_image.take()
-    }
-
-    pub(crate) fn persist_read_image(&mut self, blob_id: &BlobId, image: &ReadImage) -> Result<()> {
-        self.result.content = format!("Read image file: {}", image.path);
-        self.result.image = Some(ToolImageReference {
-            blob_id: blob_id.to_base64(),
-            mime_type: image.mime_type.clone(),
-            path: image.path.clone(),
-        });
-        let Some(pb::tool_call::Tool::ReadToolCall(call)) = self.tool_call.tool.as_mut() else {
-            return Err(Error::Protocol(
-                "Read image completion has no Read tool state".into(),
-            ));
-        };
-        let Some(pb::read_tool_result::Result::Success(success)) = call
-            .result
-            .as_mut()
-            .and_then(|result| result.result.as_mut())
-        else {
-            return Err(Error::Protocol(
-                "Read image completion has no success state".into(),
-            ));
-        };
-        success.output = Some(pb::read_tool_success::Output::DataBlobId(
-            blob_id.as_bytes().to_vec(),
-        ));
-        Ok(())
-    }
-
-    pub(crate) fn new(
-        call: &ToolCall,
-        started_at_ms: u64,
-        mut result: ToolResult,
-        mut tool: pb::tool_call::Tool,
-    ) -> Self {
-        // Apply the model-visible size gate once, at the tool completion
-        // boundary. Canonical history and every provider projection then
-        // carry the same bounded result without reprocessing it.
-        gate::tool_completion(&call.name, &mut tool, &mut result.content);
+impl ToolDispatcher {
+    pub fn new(runtime: CursorToolRuntime) -> Self {
+        let (results, _) = tool_call_result::tool_result_channel();
         Self {
-            result,
-            tool_call: pb::ToolCall {
-                tool_call_id: Some(call.call_id.clone()),
-                started_at_ms: Some(started_at_ms),
-                completed_at_ms: Some(now_ms()),
-                tool: Some(tool),
-                hook_additional_contexts: Vec::new(),
-            },
-            read_image: None,
+            runtime,
+            results,
+            search: WebSearch::built_in(),
+            fetch: WebFetch::built_in(),
+            store: None,
+            edit_schedule: Arc::new(Mutex::new(EditSchedule::default())),
         }
     }
 
-    pub(super) fn from_rendered(
+    pub fn with_results(
+        runtime: CursorToolRuntime,
+        results: ToolResultSender,
+        store: Store,
+        web_cache: WebCache,
+    ) -> Self {
+        Self {
+            runtime,
+            results,
+            search: WebSearch::managed(store.clone()),
+            fetch: WebFetch::managed(store.clone(), web_cache),
+            store: Some(store),
+            edit_schedule: Arc::new(Mutex::new(EditSchedule::default())),
+        }
+    }
+
+    pub async fn start_batch(
+        &self,
+        calls: &[ToolCall],
+        state: ToolBatchState<'_>,
+        messages: &[CanonicalMessage],
+        dynamic_mcp: &BTreeMap<String, pb::McpToolDefinition>,
+        context: &ExecContext,
+    ) -> Result<Vec<DispatchedTool>> {
+        let first_tool_index = current_turn_step_count(messages)
+            + usize::from(!state.response_thinking.is_empty())
+            + usize::from(!state.response_text.is_empty())
+            + 1;
+        let mut dispatched = Vec::new();
+        for (position, call) in calls.iter().enumerate() {
+            if state.completed.contains(&call.call_id) {
+                continue;
+            }
+            let message_index = first_tool_index + position;
+            let publish_started = !state.started.contains(&call.call_id);
+            if let Some(error) = &call.argument_error {
+                dispatched.push(validation_failure(call, error.clone()));
+                continue;
+            }
+            let edit_path = if dynamic_mcp.contains_key(&call.name) {
+                None
+            } else {
+                match edit::execution_path(call) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        dispatched.push(recover_validation_failure(call, error)?);
+                        continue;
+                    }
+                }
+            };
+            if let Some(path) = edit_path {
+                let next = self.edit_schedule.lock().await.start_or_defer(
+                    path,
+                    DeferredEdit {
+                        call: call.clone(),
+                        message_index,
+                        publish_started,
+                        context: context.clone(),
+                    },
+                );
+                let Some(next) = next else {
+                    continue;
+                };
+                let started = self
+                    .start(
+                        &next.call,
+                        next.message_index,
+                        next.publish_started,
+                        dynamic_mcp,
+                        &next.context,
+                    )
+                    .await;
+                dispatched.push(match started {
+                    Ok(started) => started,
+                    Err(error) => recover_validation_failure(&next.call, error)?,
+                });
+                continue;
+            }
+            let started = self
+                .start(call, message_index, publish_started, dynamic_mcp, context)
+                .await;
+            dispatched.push(match started {
+                Ok(started) => started,
+                Err(error) => recover_validation_failure(call, error)?,
+            });
+        }
+        Ok(dispatched)
+    }
+
+    pub(crate) async fn continue_after(&self, call_id: &str) -> Result<Option<DispatchedTool>> {
+        let next = self.edit_schedule.lock().await.complete(call_id)?;
+        let Some(next) = next else {
+            return Ok(None);
+        };
+        match self
+            .start(
+                &next.call,
+                next.message_index,
+                next.publish_started,
+                &BTreeMap::new(),
+                &next.context,
+            )
+            .await
+        {
+            Ok(started) => Ok(Some(started)),
+            Err(error) => recover_validation_failure(&next.call, error).map(Some),
+        }
+    }
+
+    pub async fn interrupt_for_message(&self) -> Vec<u32> {
+        self.edit_schedule.lock().await.clear();
+        self.runtime.interrupt_for_message().await
+    }
+
+    async fn start(
+        &self,
         call: &ToolCall,
-        started_at_ms: u64,
-        output: String,
-        is_error: bool,
-        rendered: pb::ToolCall,
-    ) -> Result<Self> {
-        let tool = rendered.tool.ok_or_else(|| {
-            Error::Protocol(format!("tool {} has no Cursor representation", call.name))
-        })?;
-        Ok(Self::new(
-            call,
-            started_at_ms,
-            ToolResult {
-                call_id: call.call_id.clone(),
-                content: output,
-                is_error,
-                image: None,
-            },
-            tool,
-        ))
+        message_index: usize,
+        publish_started: bool,
+        dynamic_mcp: &BTreeMap<String, pb::McpToolDefinition>,
+        context: &ExecContext,
+    ) -> Result<DispatchedTool> {
+        let call = context.prepare_call(call)?;
+        let mut messages = if publish_started {
+            vec![codec::tool_started(&call, dynamic_mcp.get(&call.name))?]
+        } else {
+            Vec::new()
+        };
+        let started = tool_call_dispatch::start(
+            &self.runtime,
+            &self.results,
+            &call,
+            message_index,
+            dynamic_mcp,
+            context,
+            self.store.as_ref(),
+        )
+        .await?;
+        messages.extend(started.messages);
+        Ok(DispatchedTool {
+            messages,
+            completion: started.completion,
+        })
+    }
+
+    pub async fn interaction_response(
+        &self,
+        response: &pb::InteractionResponse,
+    ) -> Result<ClientToolEvent> {
+        if self.runtime.is_interrupted(response.id).await {
+            return Ok(ClientToolEvent::Pending);
+        }
+        let pending = match self.runtime.take_interaction(response.id).await {
+            Some(pending) => pending,
+            None if self.runtime.completed_call(response.id).await.is_some() => {
+                tracing::warn!(
+                    id = response.id,
+                    "ignoring duplicate terminal interaction response"
+                );
+                return Ok(ClientToolEvent::Pending);
+            }
+            None => {
+                tracing::warn!(
+                    id = response.id,
+                    "ignoring response for unknown interaction"
+                );
+                return Ok(ClientToolEvent::Pending);
+            }
+        };
+        let call = pending.call.clone();
+        let continuation = match tool_call_dispatch::resume_interaction(
+            &self.results,
+            &self.search,
+            &self.fetch,
+            pending,
+            response,
+        )
+        .await
+        {
+            Ok(continuation) => continuation,
+            Err(Error::Protocol(message)) => {
+                return Ok(ClientToolEvent::Completed(Box::new(
+                    compat::failure_with_message(&call, message),
+                )));
+            }
+            Err(Error::Json(error)) => {
+                return Ok(ClientToolEvent::Completed(Box::new(
+                    compat::failure_with_message(&call, error.to_string()),
+                )));
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(match continuation {
+            tool_call_dispatch::InteractionContinuation::Completed(completion) => {
+                ClientToolEvent::Completed(completion)
+            }
+            tool_call_dispatch::InteractionContinuation::Pending => ClientToolEvent::Pending,
+        })
     }
 }
 
-#[derive(Clone)]
-pub struct ToolResultSender(mpsc::UnboundedSender<Result<ToolCompletion>>);
-pub struct ToolResultReceiver(mpsc::UnboundedReceiver<Result<ToolCompletion>>);
-
-pub fn tool_result_channel() -> (ToolResultSender, ToolResultReceiver) {
-    let (sender, receiver) = mpsc::unbounded_channel();
-    (ToolResultSender(sender), ToolResultReceiver(receiver))
-}
-
-impl ToolResultSender {
-    pub fn send(&self, result: ToolCompletion) {
-        let _ = self.0.send(Ok(result));
-    }
-
-    pub fn send_error(&self, error: Error) {
-        let _ = self.0.send(Err(error));
+fn validation_failure(call: &ToolCall, message: String) -> DispatchedTool {
+    DispatchedTool {
+        messages: Vec::new(),
+        completion: Some(compat::failure_with_message(call, message)),
     }
 }
 
-impl ToolResultReceiver {
-    pub async fn recv(&mut self) -> Option<Result<ToolCompletion>> {
-        self.0.recv().await
+fn recover_validation_failure(call: &ToolCall, error: Error) -> Result<DispatchedTool> {
+    match error {
+        Error::Protocol(message) => Ok(validation_failure(call, message)),
+        Error::Json(error) => Ok(validation_failure(call, error.to_string())),
+        error => Err(error),
     }
 }
 
-pub(super) fn prost_json(value: &prost_types::Value) -> Value {
-    use prost_types::value::Kind;
-    match value.kind.as_ref() {
-        None | Some(Kind::NullValue(_)) => Value::Null,
-        Some(Kind::NumberValue(value)) => serde_json::Number::from_f64(*value)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-        Some(Kind::StringValue(value)) => Value::String(value.clone()),
-        Some(Kind::BoolValue(value)) => Value::Bool(*value),
-        Some(Kind::StructValue(value)) => Value::Object(
-            value
-                .fields
-                .iter()
-                .map(|(key, value)| (key.clone(), prost_json(value)))
-                .collect(),
-        ),
-        Some(Kind::ListValue(value)) => Value::Array(value.values.iter().map(prost_json).collect()),
-    }
+fn current_turn_step_count(messages: &[CanonicalMessage]) -> usize {
+    let turn_start = messages
+        .iter()
+        .rposition(|message| message.role == Role::User)
+        .map_or(0, |position| position + 1);
+    messages[turn_start..]
+        .iter()
+        .map(|message| match &message.content {
+            MessageContent::Assistant {
+                text,
+                thinking,
+                tool_calls,
+                ..
+            } => {
+                usize::from(!thinking.is_empty()) + usize::from(!text.is_empty()) + tool_calls.len()
+            }
+            _ => 0,
+        })
+        .sum()
 }

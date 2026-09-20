@@ -538,6 +538,7 @@ export const api = {
     await request<void>("/desktop/open-external-url", { method: "POST", body: JSON.stringify({ url: url.toString() }) });
   },
   openExternalUrl: (url: string) => request<void>("/desktop/open-external-url", { method: "POST", body: JSON.stringify({ url }) }),
+  openUserGuide: () => request<void>("/desktop/open-user-guide", { method: "POST" }),
   observability: () => request<{ detailed: boolean }>("/settings/observability"),
   setObservability: (detailed: boolean) => request<{ detailed: boolean }>("/settings/observability", { method: "PUT", body: JSON.stringify({ detailed }) }),
   ports: () => request<PortSettings>("/settings/ports"),

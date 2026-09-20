@@ -3,6 +3,7 @@ import deepseekIcon from "../assets/provider-icons/deepseek.svg";
 import huoshanIcon from "../assets/provider-icons/huoshan.png";
 import kimiIcon from "../assets/provider-icons/kimi.svg";
 import minimaxIcon from "../assets/provider-icons/minimax.svg";
+import tokenaiIcon from "../assets/provider-icons/tokenai.svg";
 import zhipuIcon from "../assets/provider-icons/zhipu.svg";
 import { defaultCustomHeaders } from "./modelDefaults";
 
@@ -48,21 +49,57 @@ const entry = (
 
 const claudeHeaders = { ...defaultCustomHeaders };
 /** anthropic 协议：填 Base URL，自动追加 /v1/messages */
-const anthropic = (baseUrl: string): ModelPresetEndpoint => ({ baseUrl, useFullUrl: false, openaiEndpoint: "", customHeaders: claudeHeaders });
+const anthropic = (baseUrl: string): ModelPresetEndpoint => ({
+  baseUrl,
+  useFullUrl: false,
+  openaiEndpoint: "",
+  customHeaders: claudeHeaders,
+});
 /** openai 协议：填 Base URL，自动追加 /v1/chat/completions */
-const openaiChat = (baseUrl: string): ModelPresetEndpoint => ({ baseUrl, useFullUrl: false, openaiEndpoint: "/v1/chat/completions", customHeaders: null });
+const openaiChat = (baseUrl: string): ModelPresetEndpoint => ({
+  baseUrl,
+  useFullUrl: false,
+  openaiEndpoint: "/v1/chat/completions",
+  customHeaders: null,
+});
 /** openai 协议：路径不规则，直接给完整请求 URL */
-const openaiFullUrl = (url: string): ModelPresetEndpoint => ({ baseUrl: url, useFullUrl: true, openaiEndpoint: "/v1/chat/completions", customHeaders: null });
+const openaiFullUrl = (url: string): ModelPresetEndpoint => ({
+  baseUrl: url,
+  useFullUrl: true,
+  openaiEndpoint: "/v1/chat/completions",
+  customHeaders: null,
+});
 
 export const modelPresets: ModelPreset[] = [
+  {
+    key: "tokenai",
+    name: "Token AI 中转站",
+    icon: tokenaiIcon,
+    keyHint:
+      "token-ai.site 控制台获取 API Key（默认 Responses API + 完整请求地址，获取模型需先填入 API Key，返回该密钥可用的模型列表，兼容 Anthropic 与 OpenAI 协议）",
+    endpoints: {
+      anthropic: anthropic("https://token-ai.site"),
+      openai: openaiFullUrl("https://token-ai.site/v1/responses"),
+    },
+    models: [
+      entry("gpt-5.6-sol", "sober-gpt-5.6-sol", 272000, 240000),
+      entry("claude-sonnet-4-5", "Claude Sonnet 4.5", 272000, 64000),
+      entry("claude-opus-4-6", "Claude Opus 4.6", 272000, 64000),
+      entry("gpt-5.5-codex", "GPT-5.5 Codex", 272000, 128000),
+      entry("gpt-5.4", "GPT-5.4", 272000, 128000),
+    ],
+  },
   {
     key: "zhipu",
     name: "智谱 GLM",
     icon: zhipuIcon,
-    keyHint: "bigmodel.cn → GLM Coding Plan → API Key（套餐 Key 与普通 Key 不通用）",
+    keyHint:
+      "bigmodel.cn → GLM Coding Plan → API Key（套餐 Key 与普通 Key 不通用）",
     endpoints: {
       anthropic: anthropic("https://open.bigmodel.cn/api/anthropic"),
-      openai: openaiFullUrl("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
+      openai: openaiFullUrl(
+        "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+      ),
     },
     models: [
       entry("glm-5.3", "GLM 5.3", 1000000, 65536),
@@ -105,7 +142,9 @@ export const modelPresets: ModelPreset[] = [
     keyHint: "火山方舟 Coding Plan（ark-code-latest 路由多款代码模型）",
     endpoints: {
       anthropic: anthropic("https://ark.cn-beijing.volces.com/api/coding"),
-      openai: openaiFullUrl("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"),
+      openai: openaiFullUrl(
+        "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
+      ),
     },
     models: [entry("ark-code-latest", "Ark Code Latest", 256000, 32768)],
   },
@@ -116,7 +155,12 @@ export const modelPresets: ModelPreset[] = [
     keyHint: "platform.minimaxi.com → 订阅 Coding Plan → API Key",
     endpoints: {
       anthropic: anthropic("https://api.minimaxi.com/anthropic"),
-      openai: { baseUrl: "https://api.minimaxi.com", useFullUrl: false, openaiEndpoint: "/v1/responses", customHeaders: null },
+      openai: {
+        baseUrl: "https://api.minimaxi.com",
+        useFullUrl: false,
+        openaiEndpoint: "/v1/responses",
+        customHeaders: null,
+      },
     },
     models: [
       entry("MiniMax-M3", "MiniMax M3", 1000000, 65536),
@@ -127,4 +171,7 @@ export const modelPresets: ModelPreset[] = [
 
 export const trimTrailingSlash = (url: string) => url.replace(/\/+$/, "");
 
-export const presetEndpoint = (preset: ModelPreset, type: ModelType): ModelPresetEndpoint => preset.endpoints[type];
+export const presetEndpoint = (
+  preset: ModelPreset,
+  type: ModelType,
+): ModelPresetEndpoint => preset.endpoints[type];

@@ -11,8 +11,8 @@ import (
 	"io"
 	"strings"
 
-	agentv1 "github.com/leookun/cursor-byok/cursor-proto/gen/agent/v1"
-	aiserverv1 "github.com/leookun/cursor-byok/cursor-proto/gen/aiserver/v1"
+	agentv1 "gitcode.com/gh_mirrors/cu/cursor-byok/cursor-proto/gen/agent/v1"
+	aiserverv1 "gitcode.com/gh_mirrors/cu/cursor-byok/cursor-proto/gen/aiserver/v1"
 	"google.golang.org/protobuf/proto"
 )
 

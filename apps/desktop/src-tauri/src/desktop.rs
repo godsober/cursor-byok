@@ -107,11 +107,38 @@ async fn open_external_url_handler(
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
 
+const USER_GUIDE_RESOURCE: &str = "resources/助手使用指南.docx";
+
+fn open_user_guide(app: &AppHandle) -> std::result::Result<(), String> {
+    let path = app
+        .path()
+        .resolve(USER_GUIDE_RESOURCE, tauri::path::BaseDirectory::Resource)
+        .map_err(|error| format!("failed to locate user guide: {error}"))?;
+    if !path.exists() {
+        return Err("user guide document is missing".into());
+    }
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|error| format!("failed to open user guide: {error}"))
+}
+
+async fn open_user_guide_handler(
+    Extension(app): Extension<AppHandle>,
+) -> std::result::Result<StatusCode, (StatusCode, String)> {
+    open_user_guide(&app)
+        .map(|_| StatusCode::NO_CONTENT)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
+
 fn desktop_api_router(app: AppHandle) -> Router {
     Router::new()
         .route(
             "/__byok-api__/api/desktop/open-external-url",
             post(open_external_url_handler),
+        )
+        .route(
+            "/__byok-api__/api/desktop/open-user-guide",
+            post(open_user_guide_handler),
         )
         .layer(Extension(app))
 }

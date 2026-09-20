@@ -83,8 +83,8 @@ export function FloatingAd({ ad, trigger, onClose, onAction }: FloatingAdProps) 
           <p>{section.value}</p>
         </div>}
     </VirtualList>
-    <div className={styles.footer}>
-      <button type="button" onClick={() => { onClose(); onAction(ad.content.button.action); }}>{ad.content.button.label}</button>
-    </div>
+    {ad.content.button && <div className={styles.footer}>
+      <button type="button" onClick={() => { onClose(); onAction(ad.content.button!.action); }}>{ad.content.button.label}</button>
+    </div>}
   </div>, document.body);
 }

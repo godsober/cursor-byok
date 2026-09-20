@@ -24,10 +24,11 @@ export type AdSlot = {
       label: string;
       value: string;
     }>;
+    /** 为 null 时弹窗不渲染操作按钮（纯展示卡片） */
     button: {
       label: string;
       action: AdAction;
-    };
+    } | null;
   };
 };
 

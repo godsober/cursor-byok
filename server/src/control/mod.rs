@@ -113,10 +113,6 @@ pub fn api_router(service: ControlService) -> Router {
     Router::new()
         .route("/__byok-api__/api/promotions", get(ads::get))
         .route(
-            "/__byok-api__/api/promotions/images/{file_name}",
-            get(ads::image),
-        )
-        .route(
             "/__byok-api__/api/promotions/{ad_id}/dismissals",
             post(ads::dismiss),
         )

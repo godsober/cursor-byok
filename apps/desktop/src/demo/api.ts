@@ -9,6 +9,48 @@ import type {
   StatisticsStorage,
   TabSettings,
 } from "../shared/api";
+import type { AdSlot } from "../shell/ads/types";
+
+// 与后端 static_runtime() 保持一致：仅作者寄语 + 中转站推荐两个内置广告位
+const staticAdSlots: AdSlot[] = [
+  {
+    id: "author-note",
+    enabled: true,
+    placement: "menu",
+    target: {
+      title: "作者寄语",
+      description: "推荐使用 soberApi 源头稳定 价格抄底",
+      imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2339D9E7' d='M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-5 4V5a2 2 0 0 1 2-2z'/%3E%3C/svg%3E",
+    },
+    content: {
+      title: "作者寄语",
+      description: "推荐使用 soberApi，源头稳定，价格抄底。",
+      imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2339D9E7' d='M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-5 4V5a2 2 0 0 1 2-2z'/%3E%3C/svg%3E",
+      details: [],
+      button: null,
+    },
+  },
+  {
+    id: "relay-promo",
+    enabled: true,
+    placement: "menu",
+    target: {
+      title: "中转站推荐",
+      description: "Token AI 中转站 · token-ai.site",
+      imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%2339D9E7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m19.25 7.65-2.55-3.2a1.33 1.33 0 0 0-1.03-.5H8.58c-.34 0-.67.13-.91.37L4.15 7.65c-.93.88-.6 1.52.65 2.3l9.55 5.97'/%3E%3Cpath d='m4.75 16.35 2.55 3.2c.25.31.63.5 1.03.5h7.09c.34 0 .67-.13.91-.37l3.52-3.33c.93-.88.6-1.52-.65-2.3L9.65 8.08'/%3E%3C/g%3E%3C/svg%3E",
+    },
+    content: {
+      title: "Token AI 中转站",
+      description: "域名 + API Key 直连，兼容 Anthropic / OpenAI 协议，Claude、GPT 等全系模型通用。",
+      imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%2339D9E7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m19.25 7.65-2.55-3.2a1.33 1.33 0 0 0-1.03-.5H8.58c-.34 0-.67.13-.91.37L4.15 7.65c-.93.88-.6 1.52.65 2.3l9.55 5.97'/%3E%3Cpath d='m4.75 16.35 2.55 3.2c.25.31.63.5 1.03.5h7.09c.34 0 .67-.13.91-.37l3.52-3.33c.93-.88.6-1.52-.65-2.3L9.65 8.08'/%3E%3C/g%3E%3C/svg%3E",
+      details: [
+        { label: "地址", value: "https://token-ai.site" },
+        { label: "接入方式", value: "域名 + API Key，兼容 Anthropic / OpenAI 协议" },
+      ],
+      button: { label: "立即访问", action: { type: "open_browser", url: "https://token-ai.site" } },
+    },
+  },
+];
 
 const API_ROOT = "/__byok-api__/api";
 const FIXED_NOW = Date.UTC(2026, 7, 27, 8, 0, 0);
@@ -108,7 +150,7 @@ export function installDemoApi() {
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const body = await readBody(input, init);
 
-    if (path === "/promotions") return json({ slots: [] });
+    if (path === "/promotions") return json({ slots: staticAdSlots });
     if (path === "/models" && method === "GET") return json(models);
     if (path === "/models" && method === "POST") return json(models);
     if (path === "/models/order") return json(models);
