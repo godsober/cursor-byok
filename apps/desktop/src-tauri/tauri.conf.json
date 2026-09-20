@@ -20,9 +20,7 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "resources": [
-      "resources/助手使用指南.docx"
-    ],
+    "resources": ["resources/助手使用指南.docx"],
     "icon": [
       "icons/linux-32x32.png",
       "icons/linux-128x128.png",

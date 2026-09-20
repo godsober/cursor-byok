@@ -168,8 +168,18 @@ export interface TokenPricingSettings {
   cache_write_per_million: number;
 }
 
-export type PluginRuntimeState = "uninitialized" | "initializing" | "ready" | "failed" | "unsupported";
-export type PluginRuntimePhase = "checking" | "downloading" | "verifying" | "installing" | "validating";
+export type PluginRuntimeState =
+  | "uninitialized"
+  | "initializing"
+  | "ready"
+  | "failed"
+  | "unsupported";
+export type PluginRuntimePhase =
+  | "checking"
+  | "downloading"
+  | "verifying"
+  | "installing"
+  | "validating";
 
 export interface PluginRuntimeStatus {
   state: PluginRuntimeState;
@@ -184,14 +194,18 @@ export interface PluginRuntimeStatus {
 /** 插件提供的显示文本:纯字符串或 locale → 文本映射。 */
 export type PluginLocalizedText = string | Record<string, string>;
 
-export function pluginText(value: PluginLocalizedText | null | undefined, locale: string): string {
+export function pluginText(
+  value: PluginLocalizedText | null | undefined,
+  locale: string,
+): string {
   if (!value) return "";
   if (typeof value === "string") return value;
   if (value[locale]) return value[locale];
   const language = locale.split("-")[0].toLowerCase();
   for (const [key, text] of Object.entries(value)) {
     const normalized = key.toLowerCase();
-    if (normalized === language || normalized.startsWith(`${language}-`)) return text;
+    if (normalized === language || normalized.startsWith(`${language}-`))
+      return text;
   }
   return value["en-US"] ?? value["en"] ?? Object.values(value)[0] ?? "";
 }
@@ -322,7 +336,12 @@ export interface PluginOAuthBegin {
 
 export type PluginOAuthPoll =
   | { status: "pending"; pollIntervalMs: number }
-  | { status: "completed"; added: number; updated: number; modelSyncError: string | null }
+  | {
+      status: "completed";
+      added: number;
+      updated: number;
+      modelSyncError: string | null;
+    }
   | { status: "denied"; message: string | null }
   | { status: "failed"; message: string };
 
@@ -338,9 +357,16 @@ export interface PluginImportResult {
   modelSyncError: string | null;
 }
 
-export function configuredPluginModels(plugins: PluginDescriptor[]): PluginModelDescriptor[] {
+export function configuredPluginModels(
+  plugins: PluginDescriptor[],
+): PluginModelDescriptor[] {
   return plugins.flatMap((plugin) =>
-    plugin.providers.flatMap((provider) => provider.configured ? provider.models.filter((model) => model.enabled) : []));
+    plugin.providers.flatMap((provider) =>
+      provider.configured
+        ? provider.models.filter((model) => model.enabled)
+        : [],
+    ),
+  );
 }
 
 export interface OverviewMetrics {
@@ -411,7 +437,12 @@ export interface LlmCall {
 export interface CallDetail {
   call: LlmCall;
   request: { headers: unknown; body: unknown; byte_count: number } | null;
-  response_chunks: Array<{ seq: number; received_offset_ms: number; data: string; byte_count: number }>;
+  response_chunks: Array<{
+    seq: number;
+    received_offset_ms: number;
+    data: string;
+    byte_count: number;
+  }>;
   cursor_trace: {
     trace: {
       request_id: string;
@@ -441,9 +472,10 @@ export interface CallDetail {
   } | null;
 }
 
-const packagedDesktop = "__TAURI_INTERNALS__" in window
-  || window.location.protocol === "tauri:"
-  || window.location.hostname === "tauri.localhost";
+const packagedDesktop =
+  "__TAURI_INTERNALS__" in window ||
+  window.location.protocol === "tauri:" ||
+  window.location.hostname === "tauri.localhost";
 const API_ROOT = "/__byok-api__/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -451,7 +483,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_ROOT}${path}`, {
       ...init,
-      headers: init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers,
+      headers: init?.body
+        ? { "content-type": "application/json", ...init.headers }
+        : init?.headers,
     });
   } catch (cause) {
     throw new Error(t("无法连接本地管理服务"), { cause });
@@ -481,44 +515,155 @@ export const api = {
       },
     });
   },
-  dismissAd: (id: string, reason: string) => request<void>(`/promotions/${encodeURIComponent(id)}/dismissals`, { method: "POST", body: JSON.stringify({ reason }) }),
+  dismissAd: (id: string, reason: string) =>
+    request<void>(`/promotions/${encodeURIComponent(id)}/dismissals`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   models: () => request<Model[]>("/models"),
-  createModels: (models: ModelInput[]) => request<Model[]>("/models", { method: "POST", body: JSON.stringify({ models }) }),
-  reorderModels: (modelHashes: string[]) => request<Model[]>("/models/order", { method: "PUT", body: JSON.stringify({ model_hashes: modelHashes }) }),
-  discoverModels: (input: ModelDiscoveryInput) => request<{ models: string[] }>("/models/discover", { method: "POST", body: JSON.stringify(input) }),
-  previewV0049Models: () => request<LegacyModelImportPreview>("/models/import-v0049"),
-  importV0049Models: () => request<LegacyModelImportResult>("/models/import-v0049", { method: "POST" }),
-  updateModel: (hash: string, model: ModelInput) => request<Model>(`/models/${hash}`, { method: "PUT", body: JSON.stringify(model) }),
-  deleteModel: (hash: string) => request<void>(`/models/${hash}`, { method: "DELETE" }),
-  testModel: (hash: string, testId: string, signal?: AbortSignal) => request<ModelConnectivityResult>(`/models/${encodeURIComponent(hash)}/test/${encodeURIComponent(testId)}`, { method: "POST", signal }),
-  cancelModelTest: (hash: string, testId: string) => request<void>(`/models/${encodeURIComponent(hash)}/test/${encodeURIComponent(testId)}`, { method: "DELETE" }),
-  overview: (filter?: { startMs: number; endMs: number; modelHashes?: string[]; bucketMs?: number }) => {
+  createModels: (models: ModelInput[]) =>
+    request<Model[]>("/models", {
+      method: "POST",
+      body: JSON.stringify({ models }),
+    }),
+  reorderModels: (modelHashes: string[]) =>
+    request<Model[]>("/models/order", {
+      method: "PUT",
+      body: JSON.stringify({ model_hashes: modelHashes }),
+    }),
+  discoverModels: (input: ModelDiscoveryInput) =>
+    request<{ models: string[] }>("/models/discover", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  previewV0049Models: () =>
+    request<LegacyModelImportPreview>("/models/import-v0049"),
+  importV0049Models: () =>
+    request<LegacyModelImportResult>("/models/import-v0049", {
+      method: "POST",
+    }),
+  updateModel: (hash: string, model: ModelInput) =>
+    request<Model>(`/models/${hash}`, {
+      method: "PUT",
+      body: JSON.stringify(model),
+    }),
+  deleteModel: (hash: string) =>
+    request<void>(`/models/${hash}`, { method: "DELETE" }),
+  testModel: (hash: string, testId: string, signal?: AbortSignal) =>
+    request<ModelConnectivityResult>(
+      `/models/${encodeURIComponent(hash)}/test/${encodeURIComponent(testId)}`,
+      { method: "POST", signal },
+    ),
+  cancelModelTest: (hash: string, testId: string) =>
+    request<void>(
+      `/models/${encodeURIComponent(hash)}/test/${encodeURIComponent(testId)}`,
+      { method: "DELETE" },
+    ),
+  overview: (filter?: {
+    startMs: number;
+    endMs: number;
+    modelHashes?: string[];
+    bucketMs?: number;
+  }) => {
     const params = new URLSearchParams();
     if (filter) {
       params.set("start_ms", String(filter.startMs));
       params.set("end_ms", String(filter.endMs));
-      if (filter.modelHashes?.length) params.set("model_hashes", JSON.stringify(filter.modelHashes));
+      if (filter.modelHashes?.length)
+        params.set("model_hashes", JSON.stringify(filter.modelHashes));
       if (filter.bucketMs) params.set("bucket_ms", String(filter.bucketMs));
     }
     const query = params.toString();
     return request<Overview>(`/overview${query ? `?${query}` : ""}`);
   },
   cursorHarness: () => request<CursorHarnessStatus>("/harness/cursor/status"),
-  initializeCursorCa: () => request<CursorHarnessStatus>("/harness/cursor/ca/initialize", { method: "POST" }),
+  initializeCursorCa: () =>
+    request<CursorHarnessStatus>("/harness/cursor/ca/initialize", {
+      method: "POST",
+    }),
   plugins: () => request<PluginDescriptor[]>("/plugins"),
-  pluginOAuthBegin: (pluginId: string, resourceType: string, methodId: string) => request<PluginOAuthBegin>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/add/${encodeURIComponent(methodId)}/begin`, { method: "POST" }),
-  pluginOAuthPoll: (sessionId: string, signal?: AbortSignal) => request<PluginOAuthPoll>(`/plugins/oauth/${encodeURIComponent(sessionId)}/poll`, { method: "POST", signal }),
-  importPluginResources: (pluginId: string, resourceType: string, files: PluginImportFile[]) => request<PluginImportResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/import`, { method: "POST", body: JSON.stringify(files) }),
-  refreshPluginResource: (pluginId: string, resourceType: string, resourceId: string) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/refresh`, { method: "POST" }),
-  pluginResourceAction: (pluginId: string, resourceType: string, resourceId: string, actionId: string, input: unknown = {}) => request<PluginResourceActionResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/actions/${encodeURIComponent(actionId)}`, { method: "POST", body: JSON.stringify(input) }),
-  deletePluginResource: (pluginId: string, resourceType: string, resourceId: string) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`, { method: "DELETE" }),
-  syncPluginModels: (pluginId: string, providerId: string) => request<{ models: number }>(`/plugins/${encodeURIComponent(pluginId)}/providers/${encodeURIComponent(providerId)}/models/sync`, { method: "POST" }),
-  setPluginModelEnabled: (pluginId: string, providerId: string, modelId: string, enabled: boolean) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/providers/${encodeURIComponent(providerId)}/models/enabled`, { method: "PUT", body: JSON.stringify({ modelId, enabled }) }),
-  pluginResourceExportUrl: (servicePort: number, pluginId: string, resourceType: string) => `http://127.0.0.1:${servicePort}${API_ROOT}/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/export`,
-  removePluginConfiguration: (pluginId: string) => request<void>(`/plugins/${encodeURIComponent(pluginId)}`, { method: "DELETE" }),
+  pluginOAuthBegin: (
+    pluginId: string,
+    resourceType: string,
+    methodId: string,
+  ) =>
+    request<PluginOAuthBegin>(
+      `/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/add/${encodeURIComponent(methodId)}/begin`,
+      { method: "POST" },
+    ),
+  pluginOAuthPoll: (sessionId: string, signal?: AbortSignal) =>
+    request<PluginOAuthPoll>(
+      `/plugins/oauth/${encodeURIComponent(sessionId)}/poll`,
+      { method: "POST", signal },
+    ),
+  importPluginResources: (
+    pluginId: string,
+    resourceType: string,
+    files: PluginImportFile[],
+  ) =>
+    request<PluginImportResult>(
+      `/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/import`,
+      { method: "POST", body: JSON.stringify(files) },
+    ),
+  refreshPluginResource: (
+    pluginId: string,
+    resourceType: string,
+    resourceId: string,
+  ) =>
+    request<void>(
+      `/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/refresh`,
+      { method: "POST" },
+    ),
+  pluginResourceAction: (
+    pluginId: string,
+    resourceType: string,
+    resourceId: string,
+    actionId: string,
+    input: unknown = {},
+  ) =>
+    request<PluginResourceActionResult>(
+      `/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/actions/${encodeURIComponent(actionId)}`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  deletePluginResource: (
+    pluginId: string,
+    resourceType: string,
+    resourceId: string,
+  ) =>
+    request<void>(
+      `/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`,
+      { method: "DELETE" },
+    ),
+  syncPluginModels: (pluginId: string, providerId: string) =>
+    request<{ models: number }>(
+      `/plugins/${encodeURIComponent(pluginId)}/providers/${encodeURIComponent(providerId)}/models/sync`,
+      { method: "POST" },
+    ),
+  setPluginModelEnabled: (
+    pluginId: string,
+    providerId: string,
+    modelId: string,
+    enabled: boolean,
+  ) =>
+    request<void>(
+      `/plugins/${encodeURIComponent(pluginId)}/providers/${encodeURIComponent(providerId)}/models/enabled`,
+      { method: "PUT", body: JSON.stringify({ modelId, enabled }) },
+    ),
+  pluginResourceExportUrl: (
+    servicePort: number,
+    pluginId: string,
+    resourceType: string,
+  ) =>
+    `http://127.0.0.1:${servicePort}${API_ROOT}/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/export`,
+  removePluginConfiguration: (pluginId: string) =>
+    request<void>(`/plugins/${encodeURIComponent(pluginId)}`, {
+      method: "DELETE",
+    }),
   pluginRuntime: () => request<PluginRuntimeStatus>("/plugins/runtime"),
-  initializePluginRuntime: () => request<PluginRuntimeStatus>("/plugins/runtime", { method: "POST" }),
-  cancelPluginRuntimeInitialization: () => request<PluginRuntimeStatus>("/plugins/runtime", { method: "DELETE" }),
+  initializePluginRuntime: () =>
+    request<PluginRuntimeStatus>("/plugins/runtime", { method: "POST" }),
+  cancelPluginRuntimeInitialization: () =>
+    request<PluginRuntimeStatus>("/plugins/runtime", { method: "DELETE" }),
   openCursorCaInstallTerminal: async (command: string) => {
     if (!packagedDesktop) throw new Error(t("请在桌面应用中打开终端安装 CA"));
     const { invoke } = await import("@tauri-apps/api/core");
@@ -529,30 +674,80 @@ export const api = {
     const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
     await writeText(text);
   },
-  setCursorEnabled: (enabled: boolean) => request<CursorHarnessStatus>("/harness/cursor/enabled", { method: "PUT", body: JSON.stringify({ enabled }) }),
+  setCursorEnabled: (enabled: boolean) =>
+    request<CursorHarnessStatus>("/harness/cursor/enabled", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   calls: () => request<LlmCall[]>("/llm-calls?limit=200"),
-  call: (id: string) => request<CallDetail>(`/llm-calls/${encodeURIComponent(id)}`),
+  call: (id: string) =>
+    request<CallDetail>(`/llm-calls/${encodeURIComponent(id)}`),
   openCallDetails: async (id: string) => {
     const url = new URL(window.location.href);
     url.hash = `/calls/${encodeURIComponent(id)}`;
-    await request<void>("/desktop/open-external-url", { method: "POST", body: JSON.stringify({ url: url.toString() }) });
+    await request<void>("/desktop/open-external-url", {
+      method: "POST",
+      body: JSON.stringify({ url: url.toString() }),
+    });
   },
-  openExternalUrl: (url: string) => request<void>("/desktop/open-external-url", { method: "POST", body: JSON.stringify({ url }) }),
-  openUserGuide: () => request<void>("/desktop/open-user-guide", { method: "POST" }),
-  observability: () => request<{ detailed: boolean }>("/settings/observability"),
-  setObservability: (detailed: boolean) => request<{ detailed: boolean }>("/settings/observability", { method: "PUT", body: JSON.stringify({ detailed }) }),
+  openExternalUrl: (url: string) =>
+    request<void>("/desktop/open-external-url", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+  openUserGuide: () =>
+    request<void>("/desktop/open-user-guide", { method: "POST" }),
+  observability: () =>
+    request<{ detailed: boolean }>("/settings/observability"),
+  setObservability: (detailed: boolean) =>
+    request<{ detailed: boolean }>("/settings/observability", {
+      method: "PUT",
+      body: JSON.stringify({ detailed }),
+    }),
   ports: () => request<PortSettings>("/settings/ports"),
-  setPorts: (settings: PortSettings) => request<PortSettings>("/settings/ports", { method: "PUT", body: JSON.stringify(settings) }),
-  statisticsStorage: () => request<StatisticsStorage>("/settings/storage/statistics"),
-  clearStatisticsStorage: (scope: StatisticsStorageScope) => request<StatisticsStorage>("/settings/storage/statistics", { method: "DELETE", body: JSON.stringify({ scope }) }),
+  setPorts: (settings: PortSettings) =>
+    request<PortSettings>("/settings/ports", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+  statisticsStorage: () =>
+    request<StatisticsStorage>("/settings/storage/statistics"),
+  clearStatisticsStorage: (scope: StatisticsStorageScope) =>
+    request<StatisticsStorage>("/settings/storage/statistics", {
+      method: "DELETE",
+      body: JSON.stringify({ scope }),
+    }),
   proxySettings: () => request<ProxySettings>("/settings/proxy"),
-  setProxySettings: (settings: ProxySettingsInput) => request<ProxySettings>("/settings/proxy", { method: "PUT", body: JSON.stringify(settings) }),
+  setProxySettings: (settings: ProxySettingsInput) =>
+    request<ProxySettings>("/settings/proxy", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
   tabSettings: () => request<TabSettings>("/settings/tab"),
-  setTabSettings: (settings: TabSettings) => request<TabSettings>("/settings/tab", { method: "PUT", body: JSON.stringify(settings) }),
+  setTabSettings: (settings: TabSettings) =>
+    request<TabSettings>("/settings/tab", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
   desktopSettings: () => request<DesktopSettings>("/settings/desktop"),
-  setDesktopSettings: (settings: DesktopSettings) => request<DesktopSettings>("/settings/desktop", { method: "PUT", body: JSON.stringify(settings) }),
-  commitSettings: (locale: Locale) => request<CommitSettingsView>("/settings/commit", { headers: { "accept-language": locale } }),
-  setCommitSettings: (settings: CommitSettings) => request<CommitSettingsView>("/settings/commit", { method: "PUT", body: JSON.stringify(settings) }),
+  setDesktopSettings: (settings: DesktopSettings) =>
+    request<DesktopSettings>("/settings/desktop", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+  commitSettings: (locale: Locale) =>
+    request<CommitSettingsView>("/settings/commit", {
+      headers: { "accept-language": locale },
+    }),
+  setCommitSettings: (settings: CommitSettings) =>
+    request<CommitSettingsView>("/settings/commit", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
   pricingSettings: () => request<TokenPricingSettings>("/settings/pricing"),
-  setPricingSettings: (settings: TokenPricingSettings) => request<TokenPricingSettings>("/settings/pricing", { method: "PUT", body: JSON.stringify(settings) }),
+  setPricingSettings: (settings: TokenPricingSettings) =>
+    request<TokenPricingSettings>("/settings/pricing", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
 };
