@@ -173,7 +173,8 @@ export function CursorModelEditor({
     // Token AI: 支持 anthropic 和 openai（保留协议选择）
     // DeepSeek/Gemini/Kimi: openai chat completions
     // Grok: openai responses
-    const isClaudeOnly = preset.key === "tokenai" && draft.model.type === "anthropic";
+    const isClaudeOnly =
+      preset.key === "tokenai" && draft.model.type === "anthropic";
     const modelType: ModelType = isClaudeOnly ? "anthropic" : "openai";
     const endpoint = presetEndpoint(preset, modelType);
     const first = preset.models[0];
@@ -187,15 +188,24 @@ export function CursorModelEditor({
         use_full_url: endpoint.useFullUrl,
         openai_endpoint: modelType === "openai" ? endpoint.openaiEndpoint : "",
         custom_headers_enabled: endpoint.customHeaders !== null,
-        custom_headers: endpoint.customHeaders ? { ...endpoint.customHeaders } : {},
+        custom_headers: endpoint.customHeaders
+          ? { ...endpoint.customHeaders }
+          : {},
         api_key: "", // 切换服务商时清空 API Key
         model_id: first?.model_id ?? draft.model.model_id,
         display_name: first?.display_name ?? draft.model.display_name,
         tooltip_data: preset.name,
-        context_window_tokens: first?.context_window_tokens ?? draft.model.context_window_tokens,
+        context_window_tokens:
+          first?.context_window_tokens ?? draft.model.context_window_tokens,
         ...(modelType === "openai"
-          ? { max_completion_tokens: first?.max_output_tokens ?? draft.model.max_completion_tokens }
-          : { anthropic_max_tokens: first?.max_output_tokens ?? draft.model.anthropic_max_tokens }),
+          ? {
+              max_completion_tokens:
+                first?.max_output_tokens ?? draft.model.max_completion_tokens,
+            }
+          : {
+              anthropic_max_tokens:
+                first?.max_output_tokens ?? draft.model.anthropic_max_tokens,
+            }),
       },
       customHeadersText: endpoint.customHeaders
         ? JSON.stringify(endpoint.customHeaders, null, 2)
@@ -219,33 +229,34 @@ export function CursorModelEditor({
             onChange={setProvider}
           />
         </FormField>
-        {draft.model.type === "openai" && draft.providerId === "builtin/tokenai" && (
-          <FormField
-            label={t("请求协议")}
-            hint={t(
-              "只决定请求与响应的格式，请求地址会随之更新为 Token AI 中转站对应端点。",
-            )}
-          >
-            {" "}
-            <Select
-              ariaLabel={t("请求协议")}
-              value={draft.model.openai_endpoint}
-              options={[
-                { value: "/v1/responses", label: "Responses API" },
-                {
-                  value: "/v1/chat/completions",
-                  label: "Chat Completions API",
-                },
-              ]}
-              onChange={(openai_endpoint) =>
-                setModel({
-                  openai_endpoint,
-                  base_url: lockedOpenaiUrl(openai_endpoint),
-                })
-              }
-            />
-          </FormField>
-        )}
+        {draft.model.type === "openai" &&
+          draft.providerId === "builtin/tokenai" && (
+            <FormField
+              label={t("请求协议")}
+              hint={t(
+                "只决定请求与响应的格式，请求地址会随之更新为 Token AI 中转站对应端点。",
+              )}
+            >
+              {" "}
+              <Select
+                ariaLabel={t("请求协议")}
+                value={draft.model.openai_endpoint}
+                options={[
+                  { value: "/v1/responses", label: "Responses API" },
+                  {
+                    value: "/v1/chat/completions",
+                    label: "Chat Completions API",
+                  },
+                ]}
+                onChange={(openai_endpoint) =>
+                  setModel({
+                    openai_endpoint,
+                    base_url: lockedOpenaiUrl(openai_endpoint),
+                  })
+                }
+              />
+            </FormField>
+          )}
 
         <div className={styles.urlField}>
           <FormField
