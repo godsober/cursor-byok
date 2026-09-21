@@ -53,13 +53,22 @@ const anthropic = (baseUrl: string): ModelPresetEndpoint => ({
   openaiEndpoint: "",
   customHeaders: claudeHeaders,
 });
-/** openai 协议：路径不规则，直接给完整请求 URL */
-const openaiFullUrl = (url: string): ModelPresetEndpoint => ({
-  baseUrl: url,
-  useFullUrl: true,
-  openaiEndpoint: "/v1/chat/completions",
-  customHeaders: null,
-});
+/** openai 协议：路径不规则，直接给完整请求 URL，可指定 openaiEndpoint（默认从 URL 提取） */
+const openaiFullUrl = (
+  url: string,
+  openaiEndpoint?: string,
+): ModelPresetEndpoint => {
+  // 从 URL 中提取端点路径（如 /v1/responses 或 /v1/chat/completions）
+  const detectedEndpoint =
+    url.match(/\/(v1\/(?:responses|chat\/completions))$/)?.[1] ||
+    "/v1/chat/completions";
+  return {
+    baseUrl: url,
+    useFullUrl: true,
+    openaiEndpoint: openaiEndpoint || `/${detectedEndpoint}`,
+    customHeaders: null,
+  };
+};
 
 /** openai 协议：标准路径，填 Base URL，自动追加 /v1/chat/completions */
 const openaiChat = (baseUrl: string): ModelPresetEndpoint => ({

@@ -90,14 +90,13 @@ export function CursorModelEditor({
   const canDiscover = Boolean(
     draft.model.base_url.trim() && draft.model.api_key.trim(),
   );
-  // 选中预设后，把该服务商已知的模型 id 并入下拉，方便直接选（仍可用「获取模型」发现）
-  const presetModelOptions = modelPresets
-    .filter(
-      (preset) =>
-        trimTrailingSlash(presetEndpoint(preset, draft.model.type).baseUrl) ===
-        trimTrailingSlash(draft.model.base_url.trim()),
-    )
-    .flatMap((preset) => preset.models.map((item) => item.model_id));
+  // 根据当前选择的服务商（providerId）获取对应的模型列表，而不是根据 URL 匹配
+  const currentPreset = modelPresets.find(
+    (preset) => `builtin/${preset.key}` === draft.providerId,
+  );
+  const presetModelOptions = currentPreset
+    ? currentPreset.models.map((item) => item.model_id)
+    : [];
   const combinedOptions = [
     ...new Set([...modelOptions, ...presetModelOptions]),
   ];
