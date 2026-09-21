@@ -17,7 +17,6 @@ import {
 import { JsonEditor } from "../../shared/ui/JsonEditor";
 import { Combobox, Select, type ComboboxHandle } from "../../shared/ui/Select";
 import { Switch } from "../../shared/ui/Switch";
-import { claudeIcon, openAiIcon } from "../../shared/ui/icons";
 import { CursorPresetChips } from "./CursorPresetChips";
 import styles from "./CursorSettings.module.scss";
 
@@ -40,7 +39,7 @@ export type CursorModelDraft = {
 };
 
 export const emptyCursorModelDraft = (): CursorModelDraft => ({
-  providerId: "builtin/openai",
+  providerId: "builtin/tokenai",
   model: {
     sort_order: 0,
     display_name: "",
@@ -86,37 +85,6 @@ export function CursorModelEditor({
   const modelCombobox = useRef<ComboboxHandle>(null);
   const setModel = (patch: Partial<ModelInput>) =>
     onChange({ ...draft, model: { ...draft.model, ...patch } });
-  const setType = (type: ModelType) => {
-    // 服务器地址锁定为 Token AI 中转站：切换协议时自动换到该预设对应协议的端点
-    const endpoint = presetEndpoint(lockedPreset, type);
-    const openaiEndpoint =
-      type === "openai" ? draft.model.openai_endpoint || "/v1/responses" : "";
-    onChange({
-      ...draft,
-      providerId: `builtin/${type}`,
-      model: {
-        ...draft.model,
-        type,
-        base_url:
-          type === "openai"
-            ? lockedOpenaiUrl(openaiEndpoint)
-            : endpoint.baseUrl,
-        use_full_url: endpoint.useFullUrl,
-        custom_headers_enabled: endpoint.customHeaders !== null,
-        custom_headers: endpoint.customHeaders
-          ? { ...endpoint.customHeaders }
-          : {},
-        openai_endpoint: openaiEndpoint,
-        anthropic_thinking_effort:
-          type === "anthropic"
-            ? draft.model.anthropic_thinking_effort || "xhigh"
-            : null,
-      },
-      customHeadersText: endpoint.customHeaders
-        ? JSON.stringify(endpoint.customHeaders, null, 2)
-        : draft.customHeadersText,
-    });
-  };
   const numberValue = (value: string) =>
     value === "" ? null : Math.trunc(Number(value));
   const canDiscover = Boolean(
@@ -194,13 +162,45 @@ export function CursorModelEditor({
       ? "https://api.anthropic.com"
       : "https://api.openai.com";
 
-  const providerOptions = [
-    { value: "builtin/openai", label: "OpenAI", icon: openAiIcon },
-    { value: "builtin/anthropic", label: "Anthropic", icon: claudeIcon },
-  ];
+  const providerOptions = modelPresets.map((preset) => ({
+    value: `builtin/${preset.key}`,
+    label: preset.name,
+  }));
   const setProvider = (providerId: string) => {
-    if (providerId === "builtin/openai") setType("openai");
-    if (providerId === "builtin/anthropic") setType("anthropic");
+    const preset = modelPresets.find((p) => `builtin/${p.key}` === providerId);
+    if (!preset) return;
+    // 根据服务商规则设置协议类型和 URL
+    // Token AI: 支持 anthropic 和 openai（保留协议选择）
+    // DeepSeek/Gemini/Kimi: openai chat completions
+    // Grok: openai responses
+    const isClaudeOnly = preset.key === "tokenai" && draft.model.type === "anthropic";
+    const modelType: ModelType = isClaudeOnly ? "anthropic" : "openai";
+    const endpoint = presetEndpoint(preset, modelType);
+    const first = preset.models[0];
+    onChange({
+      ...draft,
+      providerId,
+      model: {
+        ...draft.model,
+        type: modelType,
+        base_url: endpoint.baseUrl,
+        use_full_url: endpoint.useFullUrl,
+        openai_endpoint: modelType === "openai" ? endpoint.openaiEndpoint : "",
+        custom_headers_enabled: endpoint.customHeaders !== null,
+        custom_headers: endpoint.customHeaders ? { ...endpoint.customHeaders } : {},
+        api_key: "", // 切换服务商时清空 API Key
+        model_id: first?.model_id ?? draft.model.model_id,
+        display_name: first?.display_name ?? draft.model.display_name,
+        tooltip_data: preset.name,
+        context_window_tokens: first?.context_window_tokens ?? draft.model.context_window_tokens,
+        ...(modelType === "openai"
+          ? { max_completion_tokens: first?.max_output_tokens ?? draft.model.max_completion_tokens }
+          : { anthropic_max_tokens: first?.max_output_tokens ?? draft.model.anthropic_max_tokens }),
+      },
+      customHeadersText: endpoint.customHeaders
+        ? JSON.stringify(endpoint.customHeaders, null, 2)
+        : draft.customHeadersText,
+    });
   };
 
   return (
@@ -219,7 +219,7 @@ export function CursorModelEditor({
             onChange={setProvider}
           />
         </FormField>
-        {draft.model.type === "openai" && (
+        {draft.model.type === "openai" && draft.providerId === "builtin/tokenai" && (
           <FormField
             label={t("请求协议")}
             hint={t(
