@@ -247,6 +247,7 @@ function createModel({ hash, order, name, type, url, modelId, endpoint = "/v1/re
     model_id: modelId,
     reasoning_effort: type === "openai" ? "high" : null,
     openai_endpoint: type === "openai" ? endpoint : "",
+    anthropic_endpoint: type === "anthropic" ? "/v1/messages" : "",
     openai_extra_params_enabled: false,
     openai_extra_params: {},
     custom_headers_enabled: false,

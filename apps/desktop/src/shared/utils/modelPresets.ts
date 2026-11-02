@@ -1,7 +1,7 @@
 import type { ModelType } from "../api";
 import deepseekIcon from "../assets/provider-icons/deepseek.svg";
 import kimiIcon from "../assets/provider-icons/kimi.svg";
-import tokenaiIcon from "../assets/provider-icons/tokenai.svg";
+import minimaxIcon from "../assets/provider-icons/minimax.svg";
 import zhipuIcon from "../assets/provider-icons/zhipu.svg";
 import { defaultCustomHeaders } from "./modelDefaults";
 
@@ -80,70 +80,84 @@ const openaiChat = (baseUrl: string): ModelPresetEndpoint => ({
 
 export const modelPresets: ModelPreset[] = [
   {
-    key: "tokenai",
-    name: "Token AI 中转站",
-    icon: tokenaiIcon,
-    keyHint:
-      "token-ai.site 控制台获取 API Key（默认 Responses API + 完整请求地址，获取模型需先填入 API Key，返回该密钥可用的模型列表，兼容 Anthropic 与 OpenAI 协议）",
+    key: "openai",
+    name: "OpenAI",
+    icon: "",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
     endpoints: {
       anthropic: anthropic("https://token-ai.site"),
       openai: openaiFullUrl("https://token-ai.site/v1/responses"),
     },
     models: [
-      entry("gpt-5.6-sol", "sober-gpt-5.6-sol", 272000, 240000),
-      entry("claude-sonnet-4-5", "Claude Sonnet 4.5", 272000, 64000),
-      entry("claude-opus-4-6", "Claude Opus 4.6", 272000, 64000),
-      entry("gpt-5.5-codex", "GPT-5.5 Codex", 272000, 128000),
-      entry("gpt-5.4", "GPT-5.4", 272000, 128000),
+      entry("gpt-4o", "GPT-4o", 128000, 16384),
+      entry("gpt-4o-mini", "GPT-4o Mini", 128000, 16384),
+      entry("gpt-4-turbo", "GPT-4 Turbo", 128000, 4096),
+      entry("gpt-3.5-turbo", "GPT-3.5 Turbo", 16385, 4096),
+    ],
+  },
+  {
+    key: "anthropic",
+    name: "Anthropic",
+    icon: "",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
+    endpoints: {
+      anthropic: anthropic("https://token-ai.site"),
+      openai: openaiChat("https://token-ai.site"),
+    },
+    models: [
+      entry("claude-sonnet-4-5", "Claude Sonnet 4.5", 200000, 8192),
+      entry("claude-haiku-3-5", "Claude Haiku 3.5", 200000, 8192),
+      entry("claude-opus-4", "Claude Opus 4", 200000, 4096),
     ],
   },
   {
     key: "deepseek",
     name: "DeepSeek",
     icon: deepseekIcon,
-    keyHint: "通过 Token AI 中转站调用 DeepSeek（使用 Chat Completions API）",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
     endpoints: {
       anthropic: anthropic("https://token-ai.site"),
       openai: openaiChat("https://token-ai.site"),
     },
     models: [
-      entry("deepseek-v4-pro", "DeepSeek V4 Pro", 1000000, 65536),
-      entry("deepseek-v4-flash", "DeepSeek V4 Flash", 1000000, null),
+      entry("deepseek-chat", "DeepSeek Chat", 64000, 8192),
+      entry("deepseek-coder", "DeepSeek Coder", 64000, 8192),
     ],
   },
   {
     key: "gemini",
     name: "Gemini",
-    icon: tokenaiIcon, // 临时使用 tokenai 图标，后续可替换
-    keyHint: "通过 Token AI 中转站调用 Gemini（使用 Chat Completions API）",
+    icon: "",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
     endpoints: {
       anthropic: anthropic("https://token-ai.site"),
       openai: openaiChat("https://token-ai.site"),
     },
     models: [
-      entry("gemini-2.5-pro", "Gemini 2.5 Pro", 2000000, 65536),
-      entry("gemini-2.5-flash", "Gemini 2.5 Flash", 1000000, 65536),
+      entry("gemini-2.5-pro", "Gemini 2.5 Pro", 1000000, 8192),
+      entry("gemini-2.5-flash", "Gemini 2.5 Flash", 1000000, 8192),
+      entry("gemini-2.0-flash", "Gemini 2.0 Flash", 1000000, 8192),
     ],
   },
   {
     key: "grok",
     name: "Grok",
-    icon: tokenaiIcon, // 临时使用 tokenai 图标，后续可替换
-    keyHint: "通过 Token AI 中转站调用 Grok（使用 Responses API）",
+    icon: "",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
     endpoints: {
       anthropic: anthropic("https://token-ai.site"),
-      openai: openaiFullUrl("https://token-ai.site/v1/responses"),
+      openai: openaiChat("https://token-ai.site"),
     },
     models: [
-      entry("grok-4", "Grok 4", 2000000, 65536),
-      entry("grok-3", "Grok 3", 131072, 65536),
+      entry("grok-3", "Grok 3", 131072, 8192),
+      entry("grok-3-mini", "Grok 3 Mini", 131072, 8192),
     ],
   },
   {
     key: "kimi",
     name: "Kimi (Moonshot)",
     icon: kimiIcon,
-    keyHint: "通过 Token AI 中转站调用 Kimi（使用 Chat Completions API）",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
     endpoints: {
       anthropic: anthropic("https://token-ai.site"),
       openai: openaiChat("https://token-ai.site"),
@@ -151,22 +165,34 @@ export const modelPresets: ModelPreset[] = [
     models: [
       entry("kimi-latest", "Kimi Latest", 128000, 8192),
       entry("moonshot-v1-128k", "Moonshot V1 128K", 128000, 8192),
+      entry("moonshot-v1-32k", "Moonshot V1 32K", 32000, 8192),
     ],
   },
   {
     key: "zhipu",
     name: "智谱 GLM",
     icon: zhipuIcon,
-    keyHint: "通过 Token AI 中转站调用智谱 GLM（使用 Chat Completions API）",
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
     endpoints: {
       anthropic: anthropic("https://token-ai.site"),
       openai: openaiChat("https://token-ai.site"),
     },
     models: [
-      entry("glm-5.3", "GLM 5.3", 1000000, 65536),
-      entry("glm-5.2", "GLM 5.2", 200000, 32768),
-      entry("glm-4.7", "GLM 4.7", 200000, 32768),
+      entry("glm-4", "GLM-4", 128000, 4096),
+      entry("glm-4-plus", "GLM-4-Plus", 128000, 4096),
+      entry("glm-4-flash", "GLM-4-Flash", 128000, 4096),
     ],
+  },
+  {
+    key: "minimax",
+    name: "MiniMax",
+    icon: minimaxIcon,
+    keyHint: "仅支持 Token AI 中转站，服务器地址已锁定，不可修改。",
+    endpoints: {
+      anthropic: anthropic("https://token-ai.site"),
+      openai: openaiChat("https://token-ai.site"),
+    },
+    models: [entry("minimax-text-01", "MiniMax Text 01", 1000000, 8192)],
   },
 ];
 

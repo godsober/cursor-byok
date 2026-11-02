@@ -154,6 +154,12 @@ impl TransportRegistry {
         &self.inner.conversations
     }
 
+    /// Provider shared with the agent run engine; the inference channel reuses it
+    /// so both Cursor transports honour the same model configuration.
+    pub fn provider(&self) -> Arc<dyn Provider> {
+        self.inner.conversations.dependencies().provider.clone()
+    }
+
     pub async fn get_or_create(&self, request_id: &str) -> Result<TransportHandle> {
         self.get_or_create_for_append(request_id, false).await
     }

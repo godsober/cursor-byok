@@ -6,7 +6,6 @@ import {
   type Model,
   type ModelInput,
 } from "../../shared/api";
-import { modelPresets, presetEndpoint } from "../../shared/utils/modelPresets";
 import {
   CursorCaGate,
   CursorCaProvider,
@@ -22,7 +21,6 @@ import {
 import {
   CursorModelEditor,
   emptyCursorModelDraft,
-  lockedOpenaiUrl,
   type CursorModelDraft,
 } from "./CursorModelEditor";
 import {
@@ -47,6 +45,10 @@ import { addIcon } from "../../shared/ui/icons";
 import { useMessage } from "../../shared/ui/message";
 import { PageActions } from "../../shell/PageActions";
 import { appStore, useAppStore } from "../../shared/store/appStore";
+import {
+  modelPresets,
+  trimTrailingSlash,
+} from "../../shared/utils/modelPresets";
 
 export function CursorSettingsPage() {
   const { models, cursorHarness, cursorBusy, plugins } = useAppStore();
@@ -132,14 +134,20 @@ export function CursorSettingsPage() {
     setEditing(model);
     setModelOptions([model.model_id]);
     const input = modelInput(model);
-    // 仅允许 Token AI 中转站：编辑旧模型时强制纠正为锁定端点
-    input.base_url =
-      input.type === "openai"
-        ? lockedOpenaiUrl(input.openai_endpoint || "/v1/responses")
-        : presetEndpoint(modelPresets[0], "anthropic").baseUrl;
-    input.use_full_url = input.type === "openai";
+    // 根据模型的 base_url 匹配预设，设置对应的 providerId
+    const currentBase = trimTrailingSlash(input.base_url.trim());
+    const matchedPreset = modelPresets.find((preset) =>
+      [preset.endpoints.anthropic, preset.endpoints.openai].some(
+        (candidate) => trimTrailingSlash(candidate.baseUrl) === currentBase,
+      ),
+    );
+    const providerId = matchedPreset
+      ? `builtin/${matchedPreset.key}`
+      : input.type === "anthropic"
+        ? "builtin/anthropic"
+        : "builtin/openai";
     setDraft({
-      providerId: `builtin/${input.type}`,
+      providerId,
       model: input,
       openAIExtraParamsText: JSON.stringify(model.openai_extra_params, null, 2),
       customHeadersText: JSON.stringify(model.custom_headers, null, 2),

@@ -9,6 +9,7 @@ use crate::{Error, Result};
 
 pub const OPENAI_RESPONSES_ENDPOINT: &str = "/v1/responses";
 pub const OPENAI_CHAT_ENDPOINT: &str = "/v1/chat/completions";
+pub const ANTHROPIC_MESSAGES_ENDPOINT: &str = "/v1/messages";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum ProviderType {
@@ -103,6 +104,8 @@ pub struct ModelConfigInput {
     #[serde(default)]
     pub openai_endpoint: String,
     #[serde(default)]
+    pub anthropic_endpoint: String,
+    #[serde(default)]
     pub openai_extra_params_enabled: bool,
     #[serde(default = "empty_object")]
     pub openai_extra_params: serde_json::Value,
@@ -137,6 +140,7 @@ pub struct ModelConfig {
     pub model_id: String,
     pub reasoning_effort: Option<String>,
     pub openai_endpoint: String,
+    pub anthropic_endpoint: String,
     pub openai_extra_params_enabled: bool,
     pub openai_extra_params: serde_json::Value,
     pub custom_headers_enabled: bool,
@@ -168,6 +172,7 @@ impl ModelConfig {
             self.model_type,
             &self.base_url,
             &self.openai_endpoint,
+            &self.anthropic_endpoint,
             self.use_full_url,
         )
     }
@@ -233,6 +238,10 @@ pub fn normalize_model_input(input: &ModelConfigInput) -> Result<ModelConfigInpu
         ModelType::OpenAi => normalize_openai_endpoint(&input.openai_endpoint)?,
         ModelType::Anthropic => String::new(),
     };
+    let anthropic_endpoint = match input.model_type {
+        ModelType::Anthropic => normalize_anthropic_endpoint(&input.anthropic_endpoint)?,
+        ModelType::OpenAi => String::new(),
+    };
     validate_object(&input.openai_extra_params, "OpenAI extra params")?;
     validate_object(&input.anthropic_extra_params, "Anthropic extra params")?;
     validate_headers(&input.custom_headers)?;
@@ -251,6 +260,7 @@ pub fn normalize_model_input(input: &ModelConfigInput) -> Result<ModelConfigInpu
             .then_some(reasoning_effort)
             .flatten(),
         openai_endpoint,
+        anthropic_endpoint,
         openai_extra_params_enabled: input.model_type == ModelType::OpenAi
             && input.openai_extra_params_enabled,
         openai_extra_params: if input.model_type == ModelType::OpenAi {
@@ -277,6 +287,7 @@ pub fn normalize_model_input(input: &ModelConfigInput) -> Result<ModelConfigInpu
         normalized.model_type,
         &normalized.base_url,
         &normalized.openai_endpoint,
+        &normalized.anthropic_endpoint,
         normalized.use_full_url,
     )?;
     Ok(normalized)
@@ -288,6 +299,7 @@ pub fn model_hash(input: &ModelConfigInput) -> Result<String> {
         normalized.model_type,
         &normalized.base_url,
         &normalized.openai_endpoint,
+        &normalized.anthropic_endpoint,
         normalized.use_full_url,
     )?;
     let mut parts = vec![
@@ -296,8 +308,9 @@ pub fn model_hash(input: &ModelConfigInput) -> Result<String> {
         normalized.api_key,
         normalized.display_name,
     ];
-    if normalized.model_type == ModelType::OpenAi {
-        parts.push(normalized.openai_endpoint);
+    match normalized.model_type {
+        ModelType::OpenAi => parts.push(normalized.openai_endpoint),
+        ModelType::Anthropic => parts.push(normalized.anthropic_endpoint),
     }
     let digest = Sha256::digest(parts.join("\n").as_bytes());
     Ok(hex::encode(&digest[..8]))
@@ -324,12 +337,13 @@ pub fn resolve_request_url(
     model_type: ModelType,
     base_url: &str,
     openai_endpoint: &str,
+    anthropic_endpoint: &str,
     use_full_url: bool,
 ) -> Result<String> {
     let base_url = normalize_request_url(base_url)?;
     let endpoint = match model_type {
         ModelType::OpenAi => normalize_openai_endpoint(openai_endpoint)?,
-        ModelType::Anthropic => "/v1/messages".into(),
+        ModelType::Anthropic => normalize_anthropic_endpoint(anthropic_endpoint)?,
     };
     if use_full_url {
         return Ok(base_url);
@@ -372,6 +386,15 @@ fn normalize_openai_endpoint(value: &str) -> Result<String> {
         OPENAI_CHAT_ENDPOINT => Ok(OPENAI_CHAT_ENDPOINT.into()),
         value => Err(Error::Config(format!(
             "unsupported OpenAI endpoint: {value}"
+        ))),
+    }
+}
+
+fn normalize_anthropic_endpoint(value: &str) -> Result<String> {
+    match value.trim() {
+        "" | ANTHROPIC_MESSAGES_ENDPOINT => Ok(ANTHROPIC_MESSAGES_ENDPOINT.into()),
+        value => Err(Error::Config(format!(
+            "unsupported Anthropic endpoint: {value}"
         ))),
     }
 }

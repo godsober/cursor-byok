@@ -1,12 +1,7 @@
 import { useRef } from "react";
 import type { ModelInput, ModelType } from "../../shared/api";
 import { defaultCustomHeadersText } from "../../shared/utils/modelDefaults";
-import {
-  modelPresets,
-  presetEndpoint,
-  trimTrailingSlash,
-  type ModelPreset,
-} from "../../shared/utils/modelPresets";
+import { modelPresets, presetEndpoint } from "../../shared/utils/modelPresets";
 import { Button } from "../../shared/ui/Button";
 import { Checkbox } from "../../shared/ui/Checkbox";
 import {
@@ -17,18 +12,7 @@ import {
 import { JsonEditor } from "../../shared/ui/JsonEditor";
 import { Combobox, Select, type ComboboxHandle } from "../../shared/ui/Select";
 import { Switch } from "../../shared/ui/Switch";
-import { CursorPresetChips } from "./CursorPresetChips";
 import styles from "./CursorSettings.module.scss";
-
-// 仅允许使用 Token AI 中转站：端点由预设锁定，用户不可修改服务器地址。
-const lockedPreset = modelPresets[0];
-
-/** 锁定的 OpenAI 协议完整请求 URL：按请求协议替换末尾端点路径 */
-export const lockedOpenaiUrl = (openaiEndpoint: string) =>
-  presetEndpoint(lockedPreset, "openai").baseUrl.replace(
-    /\/(?:v1\/)?(?:responses|chat\/completions)$/,
-    openaiEndpoint,
-  );
 
 export type CursorModelDraft = {
   providerId: string;
@@ -39,19 +23,20 @@ export type CursorModelDraft = {
 };
 
 export const emptyCursorModelDraft = (): CursorModelDraft => ({
-  providerId: "builtin/tokenai",
+  providerId: "builtin/openai",
   model: {
     sort_order: 0,
     display_name: "",
     group_name: null,
     type: "openai",
-    base_url: presetEndpoint(lockedPreset, "openai").baseUrl,
+    base_url: "https://token-ai.site/v1/responses",
     use_full_url: true,
     api_key: "",
     tooltip_data: "",
     model_id: "",
     reasoning_effort: null,
     openai_endpoint: "/v1/responses",
+    anthropic_endpoint: "/v1/messages",
     openai_extra_params_enabled: false,
     openai_extra_params: {},
     custom_headers_enabled: false,
@@ -103,54 +88,6 @@ export function CursorModelEditor({
   const discoverModels = async () => {
     if (await onDiscover()) modelCombobox.current?.openAll();
   };
-  const applyPreset = (preset: ModelPreset) => {
-    const endpoint = presetEndpoint(preset, draft.model.type);
-    const first = preset.models[0];
-    // 切到别家服务商时清空 API Key（不同家的 Key 不能串用）；同一家内切换协议则保留
-    const currentBase = trimTrailingSlash(draft.model.base_url.trim());
-    const sameProvider = [
-      preset.endpoints.anthropic,
-      preset.endpoints.openai,
-    ].some((candidate) => trimTrailingSlash(candidate.baseUrl) === currentBase);
-    onChange({
-      ...draft,
-      model: {
-        ...draft.model,
-        base_url: endpoint.baseUrl,
-        use_full_url: endpoint.useFullUrl,
-        openai_endpoint:
-          draft.model.type === "openai"
-            ? endpoint.openaiEndpoint
-            : draft.model.openai_endpoint,
-        custom_headers_enabled: endpoint.customHeaders !== null,
-        custom_headers: endpoint.customHeaders
-          ? { ...endpoint.customHeaders }
-          : {},
-        api_key: sameProvider ? draft.model.api_key : "",
-        model_id: first?.model_id ?? draft.model.model_id,
-        display_name: first?.display_name ?? draft.model.display_name,
-        tooltip_data:
-          !draft.model.tooltip_data.trim() ||
-          draft.model.tooltip_data === t("备注")
-            ? preset.name
-            : draft.model.tooltip_data,
-        context_window_tokens:
-          first?.context_window_tokens ?? draft.model.context_window_tokens,
-        ...(draft.model.type === "openai"
-          ? {
-              max_completion_tokens:
-                first?.max_output_tokens ?? draft.model.max_completion_tokens,
-            }
-          : {
-              anthropic_max_tokens:
-                first?.max_output_tokens ?? draft.model.anthropic_max_tokens,
-            }),
-      },
-      customHeadersText: endpoint.customHeaders
-        ? JSON.stringify(endpoint.customHeaders, null, 2)
-        : draft.customHeadersText,
-    });
-  };
   const requestUrlPlaceholder = draft.model.use_full_url
     ? draft.model.type === "anthropic"
       ? "https://api.anthropic.com/v1/messages"
@@ -168,13 +105,9 @@ export function CursorModelEditor({
   const setProvider = (providerId: string) => {
     const preset = modelPresets.find((p) => `builtin/${p.key}` === providerId);
     if (!preset) return;
-    // 根据服务商规则设置协议类型和 URL
-    // Token AI: 支持 anthropic 和 openai（保留协议选择）
-    // DeepSeek/Gemini/Kimi: openai chat completions
-    // Grok: openai responses
-    const isClaudeOnly =
-      preset.key === "tokenai" && draft.model.type === "anthropic";
-    const modelType: ModelType = isClaudeOnly ? "anthropic" : "openai";
+    // 如果选择的是 Anthropic 服务商，自动切换到 Anthropic 协议
+    const modelType: ModelType =
+      preset.key === "anthropic" ? "anthropic" : draft.model.type;
     const endpoint = presetEndpoint(preset, modelType);
     const first = preset.models[0];
     onChange({
@@ -186,6 +119,7 @@ export function CursorModelEditor({
         base_url: endpoint.baseUrl,
         use_full_url: endpoint.useFullUrl,
         openai_endpoint: modelType === "openai" ? endpoint.openaiEndpoint : "",
+        anthropic_endpoint: modelType === "anthropic" ? "/v1/messages" : "",
         custom_headers_enabled: endpoint.customHeaders !== null,
         custom_headers: endpoint.customHeaders
           ? { ...endpoint.customHeaders }
@@ -214,11 +148,6 @@ export function CursorModelEditor({
 
   return (
     <div className={styles.editor}>
-      <CursorPresetChips
-        type={draft.model.type}
-        baseUrl={draft.model.base_url}
-        onPick={applyPreset}
-      />
       <div className={styles.grid}>
         <FormField label={t("模型类型")}>
           <Select
@@ -228,34 +157,75 @@ export function CursorModelEditor({
             onChange={setProvider}
           />
         </FormField>
-        {draft.model.type === "openai" &&
-          draft.providerId === "builtin/tokenai" && (
-            <FormField
-              label={t("请求协议")}
-              hint={t(
-                "只决定请求与响应的格式，请求地址会随之更新为 Token AI 中转站对应端点。",
-              )}
-            >
-              {" "}
-              <Select
-                ariaLabel={t("请求协议")}
-                value={draft.model.openai_endpoint}
-                options={[
-                  { value: "/v1/responses", label: "Responses API" },
-                  {
-                    value: "/v1/chat/completions",
-                    label: "Chat Completions API",
-                  },
-                ]}
-                onChange={(openai_endpoint) =>
-                  setModel({
-                    openai_endpoint,
-                    base_url: lockedOpenaiUrl(openai_endpoint),
-                  })
-                }
-              />
-            </FormField>
-          )}
+        {draft.model.type === "openai" && (
+          <FormField
+            label={t("请求协议")}
+            hint={t(
+              "只决定请求与响应的格式，请求地址会随之更新为 Token AI 中转站对应端点。",
+            )}
+          >
+            {" "}
+            <Select
+              ariaLabel={t("请求协议")}
+              value={draft.model.openai_endpoint}
+              options={[
+                { value: "/v1/responses", label: "Responses API" },
+                {
+                  value: "/v1/chat/completions",
+                  label: "Chat Completions API",
+                },
+              ]}
+              onChange={(openai_endpoint) => {
+                // 根据当前服务商的 baseUrl 更新端点
+                const currentPreset = modelPresets.find(
+                  (p) => `builtin/${p.key}` === draft.providerId,
+                );
+                const baseUrl = currentPreset
+                  ? presetEndpoint(currentPreset, "openai").baseUrl
+                  : "https://token-ai.site";
+                const newBaseUrl = baseUrl.replace(
+                  /\/(?:v1\/)?(?:responses|chat\/completions)$/,
+                  openai_endpoint,
+                );
+                setModel({
+                  openai_endpoint,
+                  base_url: newBaseUrl,
+                });
+              }}
+            />
+          </FormField>
+        )}
+        {draft.model.type === "anthropic" && (
+          <FormField
+            label={t("请求协议")}
+            hint={t(
+              "只决定请求与响应的格式，请求地址会随之更新为 Token AI 中转站对应端点。",
+            )}
+          >
+            {" "}
+            <Select
+              ariaLabel={t("请求协议")}
+              value={draft.model.anthropic_endpoint}
+              options={[{ value: "/v1/messages", label: "Messages API" }]}
+              onChange={(anthropic_endpoint) => {
+                const currentPreset = modelPresets.find(
+                  (p) => `builtin/${p.key}` === draft.providerId,
+                );
+                const baseUrl = currentPreset
+                  ? presetEndpoint(currentPreset, "anthropic").baseUrl
+                  : "https://token-ai.site";
+                const newBaseUrl = baseUrl.replace(
+                  /\/(?:v1\/)?(?:messages)$/,
+                  anthropic_endpoint,
+                );
+                setModel({
+                  anthropic_endpoint,
+                  base_url: newBaseUrl,
+                });
+              }}
+            />
+          </FormField>
+        )}
 
         <div className={styles.urlField}>
           <FormField
@@ -307,12 +277,40 @@ export function CursorModelEditor({
                 {discovering ? t("获取中…") : t("获取模型")}
               </Button>
             }
-            onChange={(model_id) =>
-              setModel({
-                model_id,
-                display_name: draft.model.display_name || model_id,
-              })
-            }
+            onChange={(model_id) => {
+              // 如果选择的是 Claude 模型，自动切换到 Anthropic 协议
+              const isClaudeModel = model_id.toLowerCase().includes("claude");
+              if (isClaudeModel && draft.model.type !== "anthropic") {
+                const currentPreset = modelPresets.find(
+                  (p) => `builtin/${p.key}` === draft.providerId,
+                );
+                const endpoint = currentPreset
+                  ? presetEndpoint(currentPreset, "anthropic")
+                  : {
+                      baseUrl: "https://token-ai.site",
+                      useFullUrl: false,
+                      openaiEndpoint: "",
+                      customHeaders: null,
+                    };
+                onChange({
+                  ...draft,
+                  model: {
+                    ...draft.model,
+                    type: "anthropic",
+                    model_id,
+                    display_name: draft.model.display_name || model_id,
+                    base_url: endpoint.baseUrl,
+                    use_full_url: endpoint.useFullUrl,
+                    anthropic_endpoint: "/v1/messages",
+                  },
+                });
+              } else {
+                setModel({
+                  model_id,
+                  display_name: draft.model.display_name || model_id,
+                });
+              }
+            }}
           />
         </FormField>
         <FormField

@@ -172,6 +172,7 @@
   "61a4c7bac12dc125": "Chamadas com falha: {count}",
   "61c7d1f758b647d5": "Informações da chamada",
   "621f63a5f08384ac": "Leitura de cache: {tokens}",
+  "62bc87e46afac999": "Apenas determina o formato da requisição e resposta; o URL da requisição será atualizado para o endpoint correspondente.",
   "6320b4a8722a851f": "Status",
   "63c73c4730f4473e": "Aplicar",
   "63d90d977348ab1f": "Duplicar",

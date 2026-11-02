@@ -16,6 +16,7 @@ export interface Model {
   model_id: string;
   reasoning_effort: string | null;
   openai_endpoint: string;
+  anthropic_endpoint: string;
   openai_extra_params_enabled: boolean;
   openai_extra_params: Record<string, unknown>;
   custom_headers_enabled: boolean;
@@ -43,6 +44,7 @@ export interface ModelInput {
   model_id: string;
   reasoning_effort: string | null;
   openai_endpoint: string;
+  anthropic_endpoint: string;
   openai_extra_params_enabled: boolean;
   openai_extra_params: Record<string, unknown>;
   custom_headers_enabled: boolean;

@@ -12,11 +12,13 @@ use crate::{
     api::cursor::{
         bidi,
         proxy::{self, CursorProxy},
-        run_sse,
+        run_inference, run_sse,
     },
     cursor::{
+        inference::InferenceRegistry,
         protocol::{
             connect,
+            inference::{run_inference_client_message::Message as InferenceClientMessage, RunInferenceClientMessage},
             proto::{agent::v1 as agent, aiserver::v1 as ai},
         },
         services::{
@@ -34,13 +36,15 @@ pub fn router(
 ) -> Result<Router> {
     let proxy = CursorProxy::cursor(clients);
     let knowledge = knowledge::KnowledgeService::managed()?;
-    Ok(router_with_proxy(registry, proxy, knowledge))
+    let inference = InferenceRegistry::new(registry.store().clone(), registry.provider());
+    Ok(router_with_proxy(registry, proxy, knowledge, inference))
 }
 
 fn router_with_proxy(
     registry: TransportRegistry,
     proxy: CursorProxy,
     knowledge_service: knowledge::KnowledgeService,
+    inference: InferenceRegistry,
 ) -> Router {
     let web_cache = registry.web_cache().router();
     let free_entitlements = FreeEntitlementCache::default();
@@ -48,6 +52,18 @@ fn router_with_proxy(
         .route("/__byok-api__/healthz", get(health))
         .route("/agent.v1.AgentService/RunSSE", post(run_sse_handler))
         .route("/aiserver.v1.BidiService/BidiAppend", post(bidi_handler))
+        .route(
+            "/aiserver.v1.InferenceService/RunInference",
+            post(run_inference::bidi),
+        )
+        .route(
+            "/aiserver.v1.InferenceService/RunInferenceSSE",
+            post(run_inference::sse),
+        )
+        .route(
+            "/aiserver.v1.InferenceService/RunInferencePoll",
+            post(run_inference::poll),
+        )
         .route(
             "/aiserver.v1.AiService/AvailableDocs",
             post(compatibility::available_docs),
@@ -163,6 +179,7 @@ fn router_with_proxy(
         .layer(Extension(proxy))
         .layer(Extension(knowledge_service))
         .layer(Extension(free_entitlements))
+        .layer(Extension(inference))
         .with_state(registry)
         .merge(web_cache)
 }
@@ -228,11 +245,48 @@ async fn run_sse_handler(
 async fn bidi_handler(
     State(registry): State<TransportRegistry>,
     Extension(proxy): Extension<CursorProxy>,
+    Extension(inference): Extension<InferenceRegistry>,
     request: Request<Body>,
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let request: ai::BidiAppendRequest = connect::decode_unary(&body)?;
-    let decoded = bidi::decode(&request)?;
+    let request_id = bidi::request_id(&request)?;
+
+    // Cursor 新 harness 在 `InferenceService/RunInference` 通道上复用 BidiAppend。
+    // 已归属该通道的 run,以及已判定走上游的 run,都直接按新协议分流。
+    if inference.owns(request_id).await || registry.upstream(request_id).await {
+        return match inference_append(&registry, &inference, &request).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => {
+                proxy::forward(
+                    Extension(proxy),
+                    Request::from_parts(parts, Body::from(body)),
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
+    }
+
+    let decoded = match bidi::decode(&request) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            return match inference_append(&registry, &inference, &request).await {
+                Ok(Some(response)) => Ok(response),
+                Ok(None) => {
+                    proxy::forward(
+                        Extension(proxy),
+                        Request::from_parts(parts, Body::from(body)),
+                    )
+                    .await
+                }
+                Err(_) => {
+                    dump_failed_bidi(&request, &error);
+                    Err(error)
+                }
+            };
+        }
+    };
     let first_model = decoded.model_id().map(str::to_owned);
     let conversation_id = decoded.conversation_id().map(str::to_owned);
     let trace_metadata = decoded.trace_metadata();
@@ -335,13 +389,76 @@ async fn bidi_handler(
             return Err(error);
         }
     }
-    let mut response = Response::new(axum::body::Body::empty());
+    Ok(ok_proto_response())
+}
+
+/// Handles one appended `RunInferenceClientMessage`.
+///
+/// Returns `Ok(None)` when the run selects a Cursor-hosted model, in which case
+/// the caller must forward the append to the Cursor upstream.
+async fn inference_append(
+    registry: &TransportRegistry,
+    inference: &InferenceRegistry,
+    request: &ai::BidiAppendRequest,
+) -> Result<Option<Response<Body>>> {
+    let request_id = bidi::request_id(request)?;
+    let payload = bidi::payload(request)?;
+    let message = <RunInferenceClientMessage as prost::Message>::decode(payload.as_slice())
+        .map_err(|error| {
+            crate::Error::Protocol(format!("not a RunInferenceClientMessage: {error}"))
+        })?;
+    let owned = inference.owns(request_id).await;
+    let recognized = match &message.message {
+        Some(InferenceClientMessage::RunRequest(_)) => true,
+        Some(InferenceClientMessage::InvokeModel(invoke)) => invoke.request.is_some() || owned,
+        Some(InferenceClientMessage::CancelInvocation(_)) => owned,
+        Some(InferenceClientMessage::FinishRun(_)) => owned,
+        // Heartbeats, agent events, and run logs are valid traffic for an owned run.
+        None => owned,
+    };
+    if !recognized {
+        return Err(crate::Error::Protocol(
+            "BidiAppend payload is not a RunInference message".into(),
+        ));
+    }
+    if let Some(InferenceClientMessage::RunRequest(run)) = &message.message {
+        let model_id = run
+            .requested_model
+            .as_ref()
+            .map(|model| model.model_id.as_str())
+            .unwrap_or_default();
+        if !model_id.is_empty() {
+            let local = model_id.starts_with(crate::plugin::ADAPTER_ID_PREFIX)
+                || registry.store().model(model_id).await?.is_some();
+            if !local {
+                tracing::info!(
+                    request_id,
+                    model_id,
+                    "routing RunInference run to Cursor upstream"
+                );
+                registry.mark_upstream(request_id).await;
+                return Ok(None);
+            }
+            tracing::info!(
+                request_id,
+                model_id,
+                "routing RunInference run to BYOK provider"
+            );
+        }
+    }
+    let session = inference.session(request_id).await;
+    session.append(message).await?;
+    Ok(Some(ok_proto_response()))
+}
+
+fn ok_proto_response() -> Response<Body> {
+    let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/proto"),
     );
-    Ok(response)
+    response
 }
 
 fn trace_outcome(
@@ -358,6 +475,46 @@ fn trace_outcome(
         }
     }
     metadata
+}
+
+/// 诊断开关:`CURSOR_BYOK_BIDI_DUMP=1` 时,把无法解码的 BidiAppend 报文落到日志目录,
+/// 用于离线比对 Cursor 客户端协议与 `protocols/cursor` 快照。
+fn dump_failed_bidi(request: &ai::BidiAppendRequest, error: &crate::Error) {
+    if std::env::var_os("CURSOR_BYOK_BIDI_DUMP").is_none() {
+        return;
+    }
+    let Ok(directory) = crate::config::managed_data_dir() else {
+        return;
+    };
+    let logs = directory.join("logs");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let metadata = serde_json::json!({
+        "request_id": request.request_id.as_ref().map(|id| id.request_id.clone()),
+        "append_seqno": request.append_seqno,
+        "data_hex_len": request.data.len(),
+        "data_binary_len": request.data_binary.len(),
+        "error": error.to_string(),
+    });
+    let metadata_path = logs.join(format!("bidi-fail-{stamp}.json"));
+    if let Err(write_error) = std::fs::write(&metadata_path, metadata.to_string()) {
+        tracing::warn!(%write_error, "cannot dump failed BidiAppend metadata");
+        return;
+    }
+    let message_path = logs.join(format!("bidi-fail-{stamp}.bin"));
+    if let Ok(payload) = hex::decode(&request.data) {
+        if let Err(write_error) = std::fs::write(&message_path, &payload) {
+            tracing::warn!(%write_error, "cannot dump failed BidiAppend payload");
+            return;
+        }
+    }
+    tracing::warn!(
+        metadata = %metadata_path.display(),
+        message = %message_path.display(),
+        "dumped failed BidiAppend payload"
+    );
 }
 
 async fn buffered(request: Request<Body>) -> Result<(axum::http::request::Parts, Bytes)> {

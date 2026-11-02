@@ -61,12 +61,16 @@ fn details_are_empty(details: &&[ConnectErrorDetail]) -> bool {
 }
 
 pub fn encode_message<M: Message>(message: &M) -> Result<Bytes> {
-    let len = message.encoded_len();
-    let mut output = BytesMut::with_capacity(5 + len);
+    Ok(encode_message_payload(&message.encode_to_vec()))
+}
+
+/// Wraps an already-encoded protobuf payload in a Connect frame.
+pub fn encode_message_payload(payload: &[u8]) -> Bytes {
+    let mut output = BytesMut::with_capacity(5 + payload.len());
     output.put_u8(0);
-    output.put_u32(len as u32);
-    message.encode(&mut output)?;
-    Ok(output.freeze())
+    output.put_u32(payload.len() as u32);
+    output.extend_from_slice(payload);
+    output.freeze()
 }
 
 pub fn encode_end_stream() -> Bytes {

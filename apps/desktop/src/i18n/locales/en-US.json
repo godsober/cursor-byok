@@ -172,6 +172,7 @@
   "61a4c7bac12dc125": "Failed calls: {count}",
   "61c7d1f758b647d5": "Call information",
   "621f63a5f08384ac": "Cache read: {tokens}",
+  "62bc87e46afac999": "Only determines the request and response format; the request URL will be updated to the corresponding endpoint.",
   "6320b4a8722a851f": "Status",
   "63c73c4730f4473e": "Apply",
   "63d90d977348ab1f": "Duplicate",

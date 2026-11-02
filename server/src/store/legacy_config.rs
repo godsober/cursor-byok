@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::{
     model::{
         model_hash, normalize_model_input, normalize_request_url, ModelConfigInput, ModelType,
-        OPENAI_CHAT_ENDPOINT, OPENAI_RESPONSES_ENDPOINT,
+        ANTHROPIC_MESSAGES_ENDPOINT, OPENAI_CHAT_ENDPOINT, OPENAI_RESPONSES_ENDPOINT,
     },
     Error, Result,
 };
@@ -153,7 +153,7 @@ fn model_input(model: LegacyModel) -> Result<ModelConfigInput> {
             )))
         }
     };
-    let (base_url, openai_endpoint, use_full_url) =
+    let (base_url, openai_endpoint, anthropic_endpoint, use_full_url) =
         legacy_request_configuration(model_type, &model.base_url, &model.openai_endpoint)?;
     Ok(ModelConfigInput {
         sort_order: model.sort,
@@ -171,6 +171,7 @@ fn model_input(model: LegacyModel) -> Result<ModelConfigInput> {
         model_id: model.model_id,
         reasoning_effort: optional_string(model.reasoning_effort),
         openai_endpoint,
+        anthropic_endpoint,
         openai_extra_params_enabled: model.openai_extra_params_enabled,
         openai_extra_params: enabled_json_object(
             model_type == ModelType::OpenAi && model.openai_extra_params_enabled,
@@ -198,12 +199,12 @@ fn legacy_request_configuration(
     model_type: ModelType,
     base_url: &str,
     openai_endpoint: &str,
-) -> Result<(String, String, bool)> {
+) -> Result<(String, String, String, bool)> {
     let base_url = normalize_request_url(base_url)?;
     match model_type {
         ModelType::Anthropic => {
             let use_full_url = url_path_ends_with(&base_url, "/messages");
-            Ok((base_url, String::new(), use_full_url))
+            Ok((base_url, String::new(), ANTHROPIC_MESSAGES_ENDPOINT.into(), use_full_url))
         }
         ModelType::OpenAi => {
             let detected = openai_protocol_from_url(&base_url);
@@ -219,7 +220,7 @@ fn legacy_request_configuration(
             };
             let protocol = detected.unwrap_or(configured);
             let use_full_url = detected.is_some() || openai_endpoint.trim() == "/custom";
-            Ok((base_url, protocol.into(), use_full_url))
+            Ok((base_url, protocol.into(), String::new(), use_full_url))
         }
     }
 }

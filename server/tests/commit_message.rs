@@ -52,6 +52,7 @@ fn model_input(model_id: &str) -> ModelConfigInput {
         model_id: model_id.into(),
         reasoning_effort: None,
         openai_endpoint: OPENAI_CHAT_ENDPOINT.into(),
+        anthropic_endpoint: String::new(),
         openai_extra_params_enabled: false,
         openai_extra_params: serde_json::json!({}),
         custom_headers_enabled: false,
