@@ -239,16 +239,22 @@ impl Session {
             routing_messages = request.routing_conversation.len(),
             "RunInference run started"
         );
-        let display_name = if model_id.is_empty() {
+        let configured_model = if model_id.is_empty() {
             None
         } else {
-            self.store
-                .model(&model_id)
-                .await
-                .ok()
-                .flatten()
-                .map(|model| model.display_name)
+            self.store.model(&model_id).await.ok().flatten()
         };
+        let display_name = configured_model
+            .as_ref()
+            .map(|model| model.display_name.clone());
+        // The harness builds prompts itself, so it needs the prompt family the
+        // configured upstream model belongs to.
+        let prompt_model_metadata = convert::prompt_model_metadata(
+            configured_model
+                .as_ref()
+                .map(|model| model.model_id.as_str())
+                .unwrap_or(&model_id),
+        );
         {
             let mut state = self.state.lock().await;
             state.conversation_id = request.conversation_id;
@@ -259,6 +265,7 @@ impl Session {
                 resolved_model: Some(requested),
                 supports_self_summary: false,
                 routed_model_display_name: display_name,
+                prompt_model_metadata: Some(prompt_model_metadata),
                 accepts_client_heartbeat: false,
                 accepts_agent_events: false,
                 accepts_tool_call_events: false,

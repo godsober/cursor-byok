@@ -199,13 +199,19 @@ async fn run_inference_streams_provider_events_as_server_messages() {
     }
 
     let messages = server_messages(&frames);
-    assert!(
-        matches!(
-            messages.first().map(|message| &message.message),
-            Some(Some(run_inference_server_message::Message::RunReady(_)))
-        ),
-        "the run must be acknowledged before any invocation frame"
-    );
+    let ready = messages
+        .first()
+        .and_then(|message| match &message.message {
+            Some(run_inference_server_message::Message::RunReady(ready)) => Some(ready),
+            _ => None,
+        })
+        .expect("the run must be acknowledged before any invocation frame");
+    let prompt = ready
+        .prompt_model_metadata
+        .as_ref()
+        .expect("the harness needs prompt metadata to build prompts locally");
+    assert_eq!(prompt.vendor, "openai");
+    assert_eq!(prompt.prompt_version, "latest");
     let text: String = messages
         .iter()
         .filter_map(|message| match &message.message {

@@ -109,6 +109,19 @@ pub struct RunInferenceHeartbeat {
     pub accepts_compressed_speculative_invocations: bool,
 }
 
+/// `aiserver.v1.RunInferencePromptModelMetadata`
+///
+/// The harness renders prompts locally, so the backend has to name the prompt
+/// family it would have used. Only the family selectors are modelled; every
+/// capability flag stays false, which selects the generic prompt variant.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RunInferencePromptModelMetadata {
+    #[prost(string, tag = "1")]
+    pub vendor: String,
+    #[prost(string, tag = "2")]
+    pub prompt_version: String,
+}
+
 /// `aiserver.v1.RunInferenceRunReady`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RunInferenceRunReady {
@@ -118,6 +131,8 @@ pub struct RunInferenceRunReady {
     pub supports_self_summary: bool,
     #[prost(string, optional, tag = "3")]
     pub routed_model_display_name: Option<String>,
+    #[prost(message, optional, tag = "4")]
+    pub prompt_model_metadata: Option<RunInferencePromptModelMetadata>,
     #[prost(bool, tag = "7")]
     pub accepts_client_heartbeat: bool,
     #[prost(bool, tag = "8")]

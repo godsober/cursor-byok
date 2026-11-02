@@ -11,7 +11,7 @@ use crate::{
         inference_core_message::Content, inference_content_part::Part,
         inference_stream_response, InferenceAgentTool, InferenceCoreMessage, InferenceMessageRole,
         InferenceStreamRequest, InferenceTextStreamPart, InferenceThinkingStreamPart,
-        InferenceToolCallStreamPart, InferenceUsageInfo,
+        InferenceToolCallStreamPart, InferenceUsageInfo, RunInferencePromptModelMetadata,
     },
     model::{
         normalize_tool_name, ContentPart, ModelRequest, ModelSpec, ProjectedContent,
@@ -31,6 +31,39 @@ pub struct InvocationRequest {
 
 /// Provider tool index to the call id and name Cursor expects for that call.
 pub type ToolCalls = HashMap<usize, (String, String)>;
+
+/// Prompt version the harness renders when the backend does not ask for
+/// another one; it is the family-independent default.
+const PROMPT_VERSION: &str = "latest";
+
+/// Names the prompt family the harness renders for a locally answered model.
+///
+/// Cursor asks with its own model handle, so the configured upstream model name
+/// is the only hint about the family. Relayed models keep the family of the
+/// checkpoint behind them; anything unrecognised falls back to the generic
+/// prompt.
+pub fn prompt_model_metadata(model_id: &str) -> RunInferencePromptModelMetadata {
+    RunInferencePromptModelMetadata {
+        vendor: prompt_vendor(model_id).to_owned(),
+        prompt_version: PROMPT_VERSION.to_owned(),
+    }
+}
+
+fn prompt_vendor(model_id: &str) -> &'static str {
+    let id = model_id.to_ascii_lowercase();
+    let families: [(&[&str], &str); 5] = [
+        (&["claude", "sonnet", "opus", "haiku"], "anthropic"),
+        (&["gpt", "codex", "openai"], "openai"),
+        (&["gemini"], "google"),
+        (&["grok"], "xai"),
+        (&["glm"], "zai"),
+    ];
+    families
+        .into_iter()
+        .find(|(needles, _)| needles.iter().any(|needle| id.contains(needle)))
+        .map(|(_, vendor)| vendor)
+        .unwrap_or("unknown")
+}
 
 pub fn build_invocation(
     request: &InferenceStreamRequest,
@@ -243,12 +276,41 @@ fn convert_tool(tool: &InferenceAgentTool, tool_names: &mut HashMap<String, Stri
     ToolDefinition {
         name: normalized,
         description: tool.description.clone(),
-        parameters: tool
-            .parameters
-            .as_ref()
-            .map(struct_to_json)
-            .unwrap_or_else(|| json!({"type": "object", "properties": {}})),
+        parameters: tool_parameters(tool),
     }
+}
+
+/// Cursor ships the harness tool schema as a protobuf `Struct`, and providers
+/// require an object-typed JSON Schema. Tools without arguments arrive as an
+/// empty struct, so the object shape is completed here instead of being
+/// forwarded as `{}` and rejected upstream.
+fn tool_parameters(tool: &InferenceAgentTool) -> serde_json::Value {
+    let schema = tool
+        .parameters
+        .as_ref()
+        .map(struct_to_json)
+        .unwrap_or_default();
+    let Some(mut schema) = schema.as_object().cloned() else {
+        tracing::warn!(
+            tool = tool.name.as_str(),
+            "tool parameters are not a JSON object; sending an empty object schema"
+        );
+        return json!({"type": "object", "properties": {}});
+    };
+    let declared = schema.get("type").and_then(|value| value.as_str());
+    if declared != Some("object") {
+        tracing::warn!(
+            tool = tool.name.as_str(),
+            declared = declared.unwrap_or("<missing>"),
+            keys = ?schema.keys().collect::<Vec<_>>(),
+            "tool parameters are not an object schema; completing them"
+        );
+    }
+    schema.insert("type".into(), json!("object"));
+    if !schema.contains_key("properties") {
+        schema.insert("properties".into(), json!({}));
+    }
+    serde_json::Value::Object(schema)
 }
 
 pub fn struct_to_json(value: &Struct) -> serde_json::Value {
@@ -382,5 +444,48 @@ impl From<InferenceStreamResponseBody> for inference_stream_response::Response {
             InferenceStreamResponseBody::ToolCall(part) => Self::ToolCallPart(part),
             InferenceStreamResponseBody::Usage(part) => Self::Usage(part),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn agent_tool(name: &str, parameters: Option<Struct>) -> InferenceAgentTool {
+        InferenceAgentTool {
+            name: name.to_owned(),
+            description: String::new(),
+            parameters,
+        }
+    }
+
+    #[test]
+    fn tools_without_arguments_get_an_object_schema() {
+        for parameters in [None, Some(Struct::default())] {
+            let definition = convert_tool(&agent_tool("read_file", parameters), &mut HashMap::new());
+            assert_eq!(
+                definition.parameters,
+                json!({"type": "object", "properties": {}})
+            );
+        }
+    }
+
+    #[test]
+    fn schemas_without_a_type_keep_their_properties() {
+        let parameters = Struct {
+            fields: [(
+                "properties".to_owned(),
+                Value {
+                    kind: Some(Kind::StructValue(Struct::default())),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let definition = convert_tool(&agent_tool("edit_file", Some(parameters)), &mut HashMap::new());
+        assert_eq!(
+            definition.parameters,
+            json!({"type": "object", "properties": {}})
+        );
     }
 }
