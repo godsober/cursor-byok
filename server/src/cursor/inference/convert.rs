@@ -29,8 +29,52 @@ pub struct InvocationRequest {
     pub tool_names: HashMap<String, String>,
 }
 
-/// Provider tool index to the call id and name Cursor expects for that call.
-pub type ToolCalls = HashMap<usize, (String, String)>;
+/// Tool call state accumulated while one invocation streams, keyed by the
+/// provider's tool index.
+#[derive(Debug, Default)]
+pub struct ToolCalls {
+    calls: HashMap<usize, ToolCallState>,
+}
+
+#[derive(Debug, Default)]
+struct ToolCallState {
+    call_id: String,
+    name: String,
+    arguments: String,
+}
+
+impl ToolCalls {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn start(&mut self, index: usize, call_id: &str, name: &str) {
+        let state = self.calls.entry(index).or_default();
+        state.call_id = call_id.to_owned();
+        state.name = name.to_owned();
+    }
+
+    fn identifier(&self, index: usize) -> (String, String) {
+        self.calls
+            .get(&index)
+            .map(|state| (state.call_id.clone(), state.name.clone()))
+            .unwrap_or_default()
+    }
+
+    /// Accumulates one streamed argument fragment.
+    fn push_arguments(&mut self, index: usize, delta: &str) {
+        self.calls.entry(index).or_default().arguments.push_str(delta);
+    }
+
+    /// The harness parses the completion frame verbatim, so a tool without
+    /// arguments still has to carry an empty JSON object.
+    fn arguments(&self, index: usize) -> String {
+        match self.calls.get(&index) {
+            Some(state) if !state.arguments.is_empty() => state.arguments.clone(),
+            _ => "{}".to_owned(),
+        }
+    }
+}
 
 /// Prompt version the harness renders when the backend does not ask for
 /// another one; it is the family-independent default.
@@ -365,7 +409,7 @@ pub fn response_for_event(
             name,
         } => {
             let name = tool_names.get(name).cloned().unwrap_or_else(|| name.clone());
-            calls.insert(*index, (call_id.clone(), name.clone()));
+            calls.start(*index, call_id, &name);
             InferenceStreamResponseBody::tool_call(InferenceToolCallStreamPart {
                 tool_call_id: call_id.clone(),
                 tool_name: name,
@@ -375,21 +419,28 @@ pub fn response_for_event(
             })
         }
         ModelEvent::ToolCallArgumentsDelta { index, delta } => {
-            let (call_id, name) = calls.get(index).cloned().unwrap_or_default();
+            // The harness only accumulates argument text on frames that carry
+            // no tool name; naming the tool here would turn the frame into a
+            // second streaming-start and the arguments would be dropped.
+            calls.push_arguments(*index, delta);
+            let (call_id, _) = calls.identifier(*index);
             InferenceStreamResponseBody::tool_call(InferenceToolCallStreamPart {
                 tool_call_id: call_id,
-                tool_name: name,
+                tool_name: String::new(),
                 args: delta.clone(),
                 is_complete: false,
                 tool_index: Some(*index as i32),
             })
         }
         ModelEvent::ToolCallEnd { index } => {
-            let (call_id, name) = calls.get(index).cloned().unwrap_or_default();
+            // The completion frame is parsed as the final argument JSON, so it
+            // repeats everything streamed before it.
+            let (call_id, name) = calls.identifier(*index);
+            let args = calls.arguments(*index);
             InferenceStreamResponseBody::tool_call(InferenceToolCallStreamPart {
                 tool_call_id: call_id,
                 tool_name: name,
-                args: String::new(),
+                args,
                 is_complete: true,
                 tool_index: Some(*index as i32),
             })
@@ -471,6 +522,80 @@ mod tests {
     }
 
     #[test]
+    fn tool_arguments_stream_without_a_tool_name_and_repeat_on_completion() {
+        let names = HashMap::new();
+        let mut calls = ToolCalls::new();
+        let start = response_for_event(
+            &ModelEvent::ToolCallStart {
+                index: 0,
+                call_id: "call-1".into(),
+                name: "read_file".into(),
+            },
+            &names,
+            &mut calls,
+        )
+        .expect("start frame");
+        let InferenceStreamResponseBody::ToolCall(start) = start else {
+            panic!("expected a tool call frame")
+        };
+        assert_eq!(start.tool_name, "read_file");
+        assert!(!start.is_complete);
+
+        let first = response_for_event(
+            &ModelEvent::ToolCallArgumentsDelta {
+                index: 0,
+                delta: "{\"path\":".into(),
+            },
+            &names,
+            &mut calls,
+        )
+        .expect("delta frame");
+        let InferenceStreamResponseBody::ToolCall(first) = first else {
+            panic!("expected a tool call frame")
+        };
+        assert_eq!(first.tool_name, "");
+        assert_eq!(first.args, "{\"path\":");
+
+        response_for_event(
+            &ModelEvent::ToolCallArgumentsDelta {
+                index: 0,
+                delta: "\"a.rs\"}".into(),
+            },
+            &names,
+            &mut calls,
+        );
+        let end = response_for_event(&ModelEvent::ToolCallEnd { index: 0 }, &names, &mut calls)
+            .expect("completion frame");
+        let InferenceStreamResponseBody::ToolCall(end) = end else {
+            panic!("expected a tool call frame")
+        };
+        assert!(end.is_complete);
+        assert_eq!(end.tool_name, "read_file");
+        assert_eq!(end.args, "{\"path\":\"a.rs\"}");
+    }
+
+    #[test]
+    fn tools_without_arguments_complete_with_an_empty_object() {
+        let names = HashMap::new();
+        let mut calls = ToolCalls::new();
+        response_for_event(
+            &ModelEvent::ToolCallStart {
+                index: 1,
+                call_id: "call-2".into(),
+                name: "list_dir".into(),
+            },
+            &names,
+            &mut calls,
+        );
+        let end = response_for_event(&ModelEvent::ToolCallEnd { index: 1 }, &names, &mut calls)
+            .expect("completion frame");
+        let InferenceStreamResponseBody::ToolCall(end) = end else {
+            panic!("expected a tool call frame")
+        };
+        assert_eq!(end.args, "{}");
+    }
+
+    #[test]
     fn schemas_without_a_type_keep_their_properties() {
         let parameters = Struct {
             fields: [(
@@ -482,7 +607,8 @@ mod tests {
             .into_iter()
             .collect(),
         };
-        let definition = convert_tool(&agent_tool("edit_file", Some(parameters)), &mut HashMap::new());
+        let definition =
+            convert_tool(&agent_tool("edit_file", Some(parameters)), &mut HashMap::new());
         assert_eq!(
             definition.parameters,
             json!({"type": "object", "properties": {}})

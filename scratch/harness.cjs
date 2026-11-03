@@ -27,6 +27,19 @@ if (mode === 'ctx') {
         if (hits >= 5) break;
     }
     console.log(`\n-- hits: ${hits}`);
+} else if (mode === 'all') {
+    const needle = process.argv[3];
+    const pad = Number(process.argv[4] || 400);
+    let index = 0;
+    let hits = 0;
+    while ((index = text.indexOf(needle, index)) >= 0) {
+        hits += 1;
+        console.log(`\n=== hit ${hits} at ${index} ===`);
+        console.log(text.slice(Math.max(0, index - pad), index + pad));
+        index += needle.length;
+        if (hits >= 40) break;
+    }
+    console.log(`\n-- hits: ${hits}`);
 } else if (mode === 'dsl') {
     const classToDsl = new Map();
     const classPattern = /([A-Za-z0-9_$]+)=class [\s\S]{0,8000}?static \$\(\)\{return\["([A-Za-z0-9_.]+)\|/g;
